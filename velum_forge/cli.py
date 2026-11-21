@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from . import CAD_ENGINE_DIR, EXAMPLES_DIR, REPO_ROOT, __version__
-from .doctor import find_blender_exe, find_venv_python, install_ai_integrations, run_doctor
+from .doctor import find_blender_exe, find_venv_python, install_ai_integrations, run_doctor, set_custom_blender_exe
 from .scaffold import scaffold_asset
 from .studio_server import launch_studio
 
@@ -26,6 +26,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_doc = sub.add_parser("doctor", help="Check Blender 5.2+, CAD B-Rep venv, GPU & AI agent plugins")
     p_doc.add_argument("--json", action="store_true")
+
+    p_sb = sub.add_parser("set-blender", help="Manually set & persist custom blender.exe path in ~/.velum-forge/config.json")
+    p_sb.add_argument("path", help="Path to blender.exe (or its installation folder)")
 
     p_ai = sub.add_parser("install-ai", help="Install Velum Forge plugin & skills into Antigravity, Claude Code & workspace")
     p_ai.add_argument("--workspace", default="", help="Optional project folder to populate .agents/skills & .cursor/rules")
@@ -68,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         from .installer_gui import run_installer_gui
 
         return run_installer_gui()
+
+    if args.cmd == "set-blender":
+        res = set_custom_blender_exe(args.path)
+        print(json.dumps(res, indent=2))
+        return 0 if res.get("ok") else 1
 
     if args.cmd == "doctor":
         rep = run_doctor()

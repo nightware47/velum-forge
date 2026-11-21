@@ -314,9 +314,12 @@
 
     <!-- TAB 2: DOCTOR -->
     <section id="tab-doctor" class="view">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-        <p style="color:var(--muted);font-size:13.5px;">Verifies Blender 5.2+ LTS, OpenCascade `build123d` CAD venv, PyMeshLab/Trimesh QA, and global AI agent customizations.</p>
-        <button class="btn" onclick="loadDoctor()">Re-Scan System</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+        <p style="color:var(--muted);font-size:13.5px;">Auto-scans Registry, Steam libraries, all drives, Blender Launcher, MS Store &amp; `.venv`.</p>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-gold" onclick="browseBlender()">Locate blender.exe...</button>
+          <button class="btn" onclick="loadDoctor()">Re-Scan System</button>
+        </div>
       </div>
       <div class="check-grid" id="doctor-grid"></div>
     </section>
@@ -531,6 +534,24 @@
       if (d.ok) {
         await loadDoctor();
         alert('Installed Velum Forge plugin & skills to Antigravity (~/.gemini/config/plugins/velum-forge) and Claude Code (~/.claude/skills)!');
+      }
+    }
+
+    async function browseBlender() {
+      const r = await fetch('/api/browse-blender', { method: 'POST', body: '{}' });
+      const d = await r.json();
+      if (d.cancelled) return;
+      if (d.ok) {
+        await loadDoctor();
+        alert('Saved Blender executable: ' + d.version + '\n' + d.blender_exe);
+      } else {
+        const manual = prompt((d.error || 'Could not browse.') + '\nPaste full path to blender.exe:');
+        if (manual) {
+          const r2 = await fetch('/api/set-blender', { method: 'POST', body: JSON.stringify({ blender_exe: manual }) });
+          const d2 = await r2.json();
+          if (d2.ok) await loadDoctor();
+          else alert(d2.error || 'Invalid blender.exe path');
+        }
       }
     }
 

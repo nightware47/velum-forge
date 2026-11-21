@@ -18,7 +18,14 @@ from pathlib import Path
 from typing import Any
 
 from . import CAD_ENGINE_DIR, EXAMPLES_DIR, PLUGIN_SRC_DIR, REPO_ROOT, UI_DIR
-from .doctor import find_blender_exe, find_venv_python, get_design_output_dir, install_ai_integrations, run_doctor
+from .doctor import (
+    find_blender_exe,
+    find_venv_python,
+    get_design_output_dir,
+    install_ai_integrations,
+    run_doctor,
+    set_custom_blender_exe,
+)
 from .scaffold import scaffold_asset
 
 _JOBS_LOCK = threading.Lock()
@@ -273,6 +280,34 @@ class StudioHandler(BaseHTTPRequestHandler):
                 workspace_dir=body.get("workspace_dir") or None,
             )
             self._send_json({"ok": True, "installed": res, "doctor": run_doctor()})
+            return
+
+        if route == "/api/set-blender":
+            raw_exe = str(body.get("blender_exe") or "").strip()
+            res = set_custom_blender_exe(raw_exe)
+            status = 200 if res.get("ok") else 400
+            res["doctor"] = run_doctor()
+            self._send_json(res, status=status)
+            return
+
+        if route == "/api/browse-blender":
+            picked = ""
+            if platform.system() == "Windows":
+                ps_cmd = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+                    "$f.Title = 'Select blender.exe (Blender 5.2+ Recommended)'; "
+                    "$f.Filter = 'Blender Executable (blender.exe)|blender.exe|Executables (*.exe)|*.exe|All Files (*.*)|*.*'; "
+                    "if ($f.ShowDialog() -eq 'OK') { Write-Output $f.FileName }"
+                )
+                cp = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps_cmd], capture_output=True, text=True, check=False)
+                picked = (cp.stdout or "").strip()
+            if not picked:
+                self._send_json({"ok": False, "cancelled": True})
+                return
+            res = set_custom_blender_exe(picked)
+            res["doctor"] = run_doctor()
+            self._send_json(res, status=200 if res.get("ok") else 400)
             return
 
         if route == "/api/scaffold":

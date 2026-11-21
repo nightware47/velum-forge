@@ -9,14 +9,15 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import REPO_ROOT, __version__
-from .doctor import find_blender_exe, install_ai_integrations
+from .doctor import find_blender_exe, find_uv_exe, install_ai_integrations, set_custom_blender_exe
 
 
 def _install_worker(
     *,
+    custom_blender: str,
     setup_venv: bool,
     install_agy: bool,
     install_claude: bool,
@@ -27,19 +28,27 @@ def _install_worker(
 ) -> None:
     try:
         log_fn(f"=== Velum Forge v{__version__} Setup Wizard ===\n")
-        blender = find_blender_exe()
-        if blender:
-            log_fn(f"[OK] Detected Blender 5.2+: {blender}\n")
+        if custom_blender.strip():
+            res_b = set_custom_blender_exe(custom_blender.strip())
+            if res_b.get("ok"):
+                log_fn(f"[OK] Saved custom Blender: {res_b['version']} ({res_b['blender_exe']})\n")
+            else:
+                log_fn(f"[WARN] {res_b.get('error')}\n")
         else:
-            log_fn("[WARN] Blender 5.2+ not detected in standard paths. Install Blender 5.2 LTS for QA/Baking.\n")
+            blender = find_blender_exe()
+            if blender:
+                log_fn(f"[OK] Auto-detected Blender: {blender}\n")
+            else:
+                log_fn("[WARN] Blender not auto-detected yet. Use 'Browse...' or 'Locate blender.exe' in Studio.\n")
 
         venv_dir = REPO_ROOT / ".venv"
         venv_py = venv_dir / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
 
         if setup_venv:
-            uv_exe = shutil.which("uv")
+            uv_exe = find_uv_exe()
             if uv_exe:
-                log_fn(f"\n[1/4] Creating/updating Python 3.12 CAD .venv with uv ({uv_exe})...\n")
+                log_fn(f"\n[1/4] Provisioning standalone Python 3.12 CAD .venv via uv ({uv_exe})...\n")
+                subprocess.run([uv_exe, "python", "install", "3.12"], cwd=str(REPO_ROOT), check=False)
                 subprocess.run([uv_exe, "venv", str(venv_dir), "--python", "3.12", "--allow-existing"], cwd=str(REPO_ROOT), check=False)
                 rc = subprocess.call(
                     [uv_exe, "pip", "install", "--python", str(venv_py), "-e", str(REPO_ROOT)],
@@ -82,7 +91,7 @@ def _install_worker(
 def run_installer_gui() -> int:
     root = tk.Tk()
     root.title(f"Velum Forge v{__version__} — Workflow & Studio Installer")
-    root.geometry("720x540")
+    root.geometry("740x590")
     root.configure(bg="#0b1120")
 
     title_lbl = tk.Label(
@@ -92,16 +101,30 @@ def run_installer_gui() -> int:
         fg="#f8fafc",
         bg="#0b1120",
     )
-    title_lbl.pack(anchor="w", padx=24, pady=(20, 4))
+    title_lbl.pack(anchor="w", padx=24, pady=(18, 4))
 
     sub_lbl = tk.Label(
         root,
-        text="Configures OpenCascade build123d CAD, Blender 5.2+ QA/Bake Engine, Antigravity Plugin & Studio App.",
-        font=("Segoe UI", 10),
+        text="Auto-discovers Blender across Drives/Steam/Registry/Store, provisions Python 3.12 CAD venv & installs AI skills.",
+        font=("Segoe UI", 9),
         fg="#94a3b8",
         bg="#0b1120",
     )
-    sub_lbl.pack(anchor="w", padx=24, pady=(0, 16))
+    sub_lbl.pack(anchor="w", padx=24, pady=(0, 12))
+
+    bl_frame = tk.Frame(root, bg="#0b1120")
+    bl_frame.pack(fill="x", padx=24, pady=(0, 10))
+    tk.Label(bl_frame, text="Blender Path:", font=("Segoe UI", 9, "bold"), fg="#cbd5e1", bg="#0b1120").pack(side="left")
+    v_blender = tk.StringVar(value=find_blender_exe() or "")
+    bl_entry = tk.Entry(bl_frame, textvariable=v_blender, bg="#111c33", fg="#67e8f9", insertbackground="#fff", relief="flat", font=("Consolas", 9))
+    bl_entry.pack(side="left", fill="x", expand=True, padx=8, ipady=4)
+
+    def _pick_b() -> None:
+        fp = filedialog.askopenfilename(title="Select blender.exe", filetypes=[("Blender", "blender.exe"), ("All files", "*.*")])
+        if fp:
+            v_blender.set(fp)
+
+    tk.Button(bl_frame, text="Browse...", command=_pick_b, bg="#1e293b", fg="#fff", relief="flat", padx=10).pack(side="right")
 
     opts_frame = tk.Frame(root, bg="#111c33", highlightbackground="#1e293b", highlightthickness=1)
     opts_frame.pack(fill="x", padx=24, pady=(0, 14))
@@ -157,6 +180,7 @@ def run_installer_gui() -> int:
         threading.Thread(
             target=_install_worker,
             kwargs=dict(
+                custom_blender=v_blender.get(),
                 setup_venv=v_venv.get(),
                 install_agy=v_agy.get(),
                 install_claude=v_claude.get(),

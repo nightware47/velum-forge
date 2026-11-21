@@ -42,37 +42,42 @@ $CadBridge = Join-Path $RepoRoot "engine\cad\cad_bridge.py"
 $ComposeScript = Join-Path $RepoRoot "engine\cad\compose_sheet.py"
 $QaPipeline = Join-Path $RepoRoot "engine\blender\qa_pipeline.py"
 
-# Locate CAD/Studio Python venv (falls back to system python)
+# Locate CAD/Studio Python venv (checks .venv, ~/.velum-forge/config.json, py.exe, and off-PATH installs)
+$CfgFile = Join-Path $HOME ".velum-forge\config.json"
+$SavedPy = $null
+$SavedBlender = $null
+if (Test-Path $CfgFile) {
+    try {
+        $CfgJson = Get-Content $CfgFile -Raw | ConvertFrom-Json
+        if ($CfgJson.PSObject.Properties["python_exe"]) { $SavedPy = $CfgJson.python_exe }
+        if ($CfgJson.PSObject.Properties["blender_exe"]) { $SavedBlender = $CfgJson.blender_exe }
+    } catch {}
+}
+
 $CadPythonCandidates = @(
     (Join-Path $RepoRoot ".venv\Scripts\python.exe"),
-    (Join-Path $RepoRoot "engine\cad\.venv\Scripts\python.exe")
-)
-$CadPython = $null
-foreach ($c in $CadPythonCandidates) {
-    if (Test-Path $c) { $CadPython = $c; break }
-}
+    (Join-Path $RepoRoot "engine\cad\.venv\Scripts\python.exe"),
+    $SavedPy
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+$CadPython = if ($CadPythonCandidates.Count -gt 0) { $CadPythonCandidates[0] } else { $null }
 if (-not $CadPython) {
-    $pyCmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($pyCmd) { $CadPython = $pyCmd.Source }
-}
-if (-not $CadPython) {
-    throw "Python venv not found. Run .\install.ps1 or Setup-VelumForge.cmd first."
+    throw "Velum Forge .venv not found. Run .\install.ps1 or double-click Setup-VelumForge.cmd first."
 }
 
-# Locate Blender 5.2+ executable
-$BlenderCandidates = @(
-    $env:VELUM_BLENDER_EXE,
-    "C:\Program Files\Blender Foundation\Blender 5.3\blender.exe",
-    "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
-) | Where-Object { $_ -and (Test-Path $_) }
-
-$BlenderExe = if ($BlenderCandidates.Count -gt 0) { $BlenderCandidates[0] } else { $null }
+# Locate Blender 5.2+ via saved config, VELUM_BLENDER_EXE, or velum_forge.doctor 10-source scanner!
+$BlenderExe = $null
+foreach ($bc in @($env:VELUM_BLENDER_EXE, $SavedBlender)) {
+    if ($bc -and (Test-Path -LiteralPath $bc)) { $BlenderExe = $bc; break }
+}
 if (-not $BlenderExe) {
-    $bCmd = Get-Command blender -ErrorAction SilentlyContinue
-    if ($bCmd) { $BlenderExe = $bCmd.Source }
+    $probed = (& $CadPython -c "import sys; sys.path.insert(0, r'$RepoRoot'); from velum_forge.doctor import find_blender_exe; print(find_blender_exe() or '')" 2>$null | Select-Object -Last 1)
+    if ($LASTEXITCODE -eq 0 -and $probed -and (Test-Path -LiteralPath $probed.Trim())) {
+        $BlenderExe = $probed.Trim()
+    }
 }
-if (-not $BlenderExe -or -not (Test-Path $BlenderExe)) {
-    throw "Blender 5.2+ executable not found. Install Blender 5.2 LTS or set VELUM_BLENDER_EXE."
+if (-not $BlenderExe -or -not (Test-Path -LiteralPath $BlenderExe)) {
+    throw "Blender executable not found. Run 'vforge set-blender ""D:\Path\To\blender.exe""' or click 'Locate blender.exe' in Velum Forge Studio."
 }
 
 $AssetPath = (Resolve-Path $Asset).Path

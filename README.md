@@ -34,14 +34,20 @@
 
 ## Quick Start & 1-Click Installer
 
-### Windows (PowerShell 1-Liner or GUI Setup Wizard)
+### Windows (Zero-Prerequisite PowerShell 1-Liner or Native Setup Wizard)
+> **No Python, `uv`, or Git on `PATH`? No problem.** `install.ps1` and `Setup-VelumForge.cmd` automatically bootstrap standalone `uv` + portable CPython 3.12 (rejecting broken Windows Store stubs) and deep-scan all drives (`C:`–`Z:`), **Steam libraries (`libraryfolders.vdf`)**, **Blender Launcher**, **Windows Registry (`.blend` file associations, `Uninstall` keys, `MuiCache`)**, **Scoop/Chocolatey**, and **Microsoft Store** to find `blender.exe` automatically.
+
 ```powershell
-# Clone + provision CAD Python 3.12 .venv + install Antigravity/Claude skills + add `vforge` to PATH:
+# Clone (or HTTPS zip fallback) + auto-bootstrap Python 3.12 .venv + detect Blender + install AI skills:
 irm https://raw.githubusercontent.com/velumix/velum-forge/main/install.ps1 | iex
 ```
-Or after cloning locally:
-- Double-click **`Setup-VelumForge.cmd`** to open the dark-mode **Windows Setup Wizard GUI**.
+Or after cloning/downloading locally:
+- Double-click **`Setup-VelumForge.cmd`** to open the zero-dependency native Windows `.NET` Setup Wizard (includes a **Browse...** picker if Blender lives on an external drive).
 - Double-click **`Launch-VelumForge-Studio.cmd`** (or run `vforge studio`) to launch the **Velum Forge Studio** desktop app.
+- Need to point to a custom portable Blender manually? Click **`Locate blender.exe...`** in Studio's Environment Doctor tab or run:
+  ```powershell
+  vforge set-blender "D:\CustomTools\Blender 5.2\blender.exe"
+  ```
 
 ### macOS / Linux
 ```bash
