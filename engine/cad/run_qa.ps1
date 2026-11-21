@@ -55,12 +55,14 @@ if (Test-Path $CfgFile) {
 }
 
 $CadPythonCandidates = @(
-    (Join-Path $RepoRoot ".venv\Scripts\python.exe"),
-    (Join-Path $RepoRoot "engine\cad\.venv\Scripts\python.exe"),
-    $SavedPy
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    @(
+        (Join-Path $RepoRoot ".venv\Scripts\python.exe"),
+        (Join-Path $RepoRoot "engine\cad\.venv\Scripts\python.exe"),
+        $SavedPy
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+)
 
-$CadPython = if ($CadPythonCandidates.Count -gt 0) { $CadPythonCandidates[0] } else { $null }
+$CadPython = if (@($CadPythonCandidates).Count -gt 0) { $CadPythonCandidates[0] } else { $null }
 if (-not $CadPython) {
     throw "Velum Forge .venv not found. Run .\install.ps1 or double-click Setup-VelumForge.cmd first."
 }
@@ -112,7 +114,7 @@ $BlenderArgs = @("-b")
 $PipelineArgs = @("--out-dir", $OutDir, "--profile", $Profile, "--renderer", $Renderer, "--asset-name", $AssetStem, "--forward-axis", $ForwardAxis)
 if ($Fast) { $PipelineArgs += "--fast" }
 if (-not [string]::IsNullOrWhiteSpace($Collection)) { $PipelineArgs += @("--collection", $Collection) }
-if ($Objects.Count -gt 0) { $PipelineArgs += "--objects"; $PipelineArgs += $Objects }
+if (@($Objects).Count -gt 0) { $PipelineArgs += "--objects"; $PipelineArgs += $Objects }
 
 if ($Ext -eq ".blend") {
     $BlenderArgs += @($AssetPath, "--python-exit-code", "1", "-P", $QaPipeline, "--") + $PipelineArgs
@@ -173,11 +175,32 @@ $ComposeArgs = @(
 if (-not [string]::IsNullOrWhiteSpace($Ref)) {
     $RefPath = (Resolve-Path $Ref).Path
     $ComposeArgs += @("--ref", $RefPath, "--out-ref", $OutRef)
+} else {
+    # Auto-detect reference image inside <asset_dir>/references/ if present!
+    $AutoRefDir = Join-Path (Split-Path $AssetPath -Parent) "references"
+    if (Test-Path $AutoRefDir) {
+        $FirstRef = Get-ChildItem -Path $AutoRefDir -Include "*.png","*.jpg","*.jpeg" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($FirstRef) {
+            $Ref = $FirstRef.FullName
+            $ComposeArgs += @("--ref", $Ref, "--out-ref", $OutRef)
+        }
+    }
 }
 
 Write-Host "[vforge-qa] Composing labeled contact sheets..." -ForegroundColor Cyan
 $ecCompose = Invoke-NativeQuiet $CadPython $ComposeArgs
 if ($ecCompose -ne 0) { throw "Contact sheet composition failed." }
+
+# Mirror QA contact sheets (+ ref_comparison.png) into <asset_dir>/renders/ so Studio UI shows them immediately!
+$AssetRendersDir = Join-Path (Split-Path $AssetPath -Parent) "renders"
+if (Test-Path (Split-Path $AssetPath -Parent)) {
+    New-Item -ItemType Directory -Force -Path $AssetRendersDir | Out-Null
+    Copy-Item -LiteralPath $OutMaterial -Destination (Join-Path $AssetRendersDir "qa_contact_material.png") -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $OutDiagnostic -Destination (Join-Path $AssetRendersDir "qa_contact_diagnostic.png") -Force -ErrorAction SilentlyContinue
+    if (Test-Path $OutRef) {
+        Copy-Item -LiteralPath $OutRef -Destination (Join-Path $AssetRendersDir "ref_comparison.png") -Force -ErrorAction SilentlyContinue
+    }
+}
 
 if (-not $KeepTiles) {
     Get-ChildItem -Path $OutDir -Filter "tile_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -197,15 +220,16 @@ Write-Host ("Size (m):   {0} x {1} x {2}" -f $Qa.size_m[0], $Qa.size_m[1], $Qa.s
 Write-Host ("Studs(3/m): {0} x {1} x {2}" -f $Qa.size_studs_sclib[0], $Qa.size_studs_sclib[1], $Qa.size_studs_sclib[2])
 Write-Host ("Material:   $OutMaterial")
 Write-Host ("Diagnostic: $OutDiagnostic")
+if (Test-Path $OutRef) { Write-Host ("Ref Sheet:  $OutRef") }
 Write-Host ("Report:     $QaJson")
 
-if ($Qa.errors.Count -gt 0) {
+if (@($Qa.errors).Count -gt 0) {
     Write-Host "Errors:" -ForegroundColor Red
-    foreach ($e in $Qa.errors) { Write-Host "  - $e" -ForegroundColor Red }
+    foreach ($e in @($Qa.errors)) { Write-Host "  - $e" -ForegroundColor Red }
 }
-if ($Qa.warnings.Count -gt 0) {
+if (@($Qa.warnings).Count -gt 0) {
     Write-Host "Warnings:" -ForegroundColor Yellow
-    foreach ($w in $Qa.warnings) { Write-Host "  - $w" -ForegroundColor Yellow }
+    foreach ($w in @($Qa.warnings)) { Write-Host "  - $w" -ForegroundColor Yellow }
 }
 
 if ((-not $PassFlag) -and (-not $NoFailExit)) { exit 1 }

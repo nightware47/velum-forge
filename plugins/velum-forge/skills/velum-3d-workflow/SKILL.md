@@ -10,13 +10,15 @@ Use this skill whenever asked to create, overhaul, or productionize a 3D model. 
 ## Pipeline Architecture
 
 ```text
+Stage 0: Reference Intake & Spec (`references/*` + `asset_spec.json` + 1:1m Viewport Planes)
+   │
 Stage 1: Precision CAD Hardware (build123d -> STEP + 1:1m watertight GLB)   [velum-cad-brep]
    │
 Stage 2: Parametric / Organic BMesh Assembly in Meters (+Y fwd, Z=0 ground)  [velum-organic-species]
    │
 Stage 3: Hard BVH Shell-Integrity & Signed-Volume Normal Gate (0 breaches)
    │
-Stage 4: Automated 10-View Visual & Geometric QA (`vforge qa` -> PASS 0E/0W)
+Stage 4: Automated 10-View QA + Side-by-Side `ref_comparison.png` (`PASS` 0E/0W)
    │
 Stage 5: Cycles GPU (OPTIX) 2048x2048 PBR Texture Bake + Multi-Variant Build [velum-pbr-bake-lods]
    │
@@ -24,6 +26,18 @@ Stage 6: Seam-Locked 4-Tier LOD0..LOD3 + Game Engine Export + Visual Review
 ```
 
 ## Stage-by-Stage Execution Checklist
+
+### Stage 0 — Reference Images, `asset_spec.json` & Starting a New Asset
+- **Starting from scratch or reference photos:**
+  ```powershell
+  # Stages reference photos into <dir>/references/, extracts dominant hex palette & aspect ratio,
+  # writes asset_spec.json, and generates a reference-calibrated baseline + Ref-vs-Model QA sheet:
+  vforge generate red_snapper --kind fish --length 0.85 --ref path\to\snapper_side.jpg --prompt "Northern Red Snapper"
+  ```
+- **When refining an existing or Studio-staged asset folder:**
+  1. Always check `<asset_dir>/asset_spec.json` first and **visually read every image inside `<asset_dir>/references/`** before writing geometry!
+  2. Call `refs.load_reference_planes(THIS_DIR)` (`from vflib import refs`) inside `build_<slug>.py` so `1:1 m` orthographic reference planes are placed inside `VF_References_ref` (automatically ignored by QA triangle checks & game exports).
+  3. Whenever `<asset_dir>/references/` contains at least one image, `vforge qa` **automatically generates `<asset_dir>/renders/ref_comparison.png`** placing `REFERENCE` side-by-side next to `MODEL` — always inspect `ref_comparison.png` visually and iterate until silhouette, proportions, and colors match!
 
 ### Stage 1 — Precision Mechanical CAD Sub-Assemblies (`velum-cad-brep`)
 - Whenever an asset includes machined, cast, or ergonomic hardware (steering wheels, cleats, throttles, propellers, rod launchers, hinges, brackets), build them in `build123d` (`engine/cad/cad_bridge.py`) at `1.0 unit = 1.0 meter` (`+Z = Up`).

@@ -1,4 +1,4 @@
-﻿"""Sun City RP â€” Trophy Mahi-Mahi (`Coryphaena hippurus`) 2K Cycles PBR Bake, 4 Variants, 4-Tier LODs & Swim Rig.
+﻿"""Velum Forge â€” Trophy Mahi-Mahi (`Coryphaena hippurus`) 2K Cycles PBR Bake, 4 Variants, 4-Tier LODs & Swim Rig.
 
 End-to-end production pipeline matching & extending `Sunrunner 24`:
   1. Builds parametric anatomical Mahi-Mahi (`build_mahi_mahi.py`) with real sexual dimorphism:

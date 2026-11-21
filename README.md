@@ -58,21 +58,34 @@ vforge studio
 
 ---
 
-## Velum Forge Studio App & `vforge` CLI
+## Generating Your First 3D Model (With Reference Photos!)
 
-`vforge studio` opens the local **Velum Forge Studio** desktop app:
-- **Showroom & PBR/LOD Inspector:** Browse assets, inspect hero renders, `LOD0`–`LOD3` sheets, and `2048x2048` `Color` / `Normal` / `Roughness` / `Metalness` / `AO` / `ORM` maps, open `.blend` files directly in Blender 5.2, and trigger live QA or Bake jobs with streaming console output.
-- **Environment Doctor:** Live health checks for Blender 5.2+ LTS, Cycles GPU, `build123d` / `trimesh` / `pymeshlab`, Antigravity Plugin, and Claude Code skills.
-- **New Asset Wizard:** Scaffold ready-to-run `boat`, `fish`, `cad`, or `prop` generators in one click.
+### In the Desktop Studio App (`vforge studio`)
+1. Open **Velum Forge Studio** (`Launch-VelumForge-Studio.cmd` or `vforge studio`) — it opens directly to **`+ Generate 3D Asset`**.
+2. **Step 1:** Enter a name (e.g. `Red Snapper`), pick an archetype (`Fish / Creature`, `Boat / Vehicle`, `Mechanical CAD`, or `Prop`), set real-world length in meters, and describe your model.
+3. **Step 2:** **Drag & drop** reference photos/blueprints (or press **`Ctrl+V`** to paste straight from your clipboard!). Velum Forge automatically extracts the subject's aspect ratio & dominant hex color palette and places `1:1 m` orthographic reference planes inside Blender (`VF_References_ref`).
+4. **Step 3 — Pick how to build:**
+   - **Generate 3D Asset Now (Instant + Ref QA):** Immediately builds a reference-calibrated multi-part `.blend` + `.glb`, renders the 10-view QA sheets + **Side-by-Side Reference vs. Model (`ref_comparison.png`)**, and generates 4 variants + `LOD0`–`LOD3`!
+   - **Generate Bespoke via Local AI CLI (`Claude` / `Codex` / `Gemini`):** Drives your installed multimodal AI CLI directly against `references/*` and `asset_spec.json`.
+   - **Stage & Copy Prompt for Antigravity / Cursor:** Stages `references/` + `asset_spec.json` and copies a ready-to-paste prompt to your clipboard so your IDE AI agent builds custom geometry with zero guesswork!
 
+### From the Command Line (`vforge`)
 ```powershell
-vforge doctor                                                        # Verify Blender 5.2+, CAD venv & AI skills
-vforge install-ai --workspace C:\path\to\your\game                   # Install Antigravity, Claude & Cursor skills/rules
-vforge new fish yellowfin_tuna                                       # Scaffold a new asset generator
-vforge qa examples\mahi_mahi\build_mahi_mahi.py --forward-axis +Y    # Run 10-view visual & geometric QA gate
-vforge bake examples\mahi_mahi\bake_lod_variants.py                  # Bake 2K Cycles PBR + variants + LOD0-LOD3
-vforge inspect path\to\part.glb                                      # Trimesh watertightness & 20k tri check
-vforge studio                                                        # Launch Velum Forge Studio desktop app
+# Generate a new 3D asset from reference photo(s) + prompt (auto-renders Ref-vs-Model QA + 4 variants + LOD0-LOD3!):
+vforge generate red_snapper --kind fish --length 0.85 --ref C:\photos\snapper_side.png --prompt "Northern Red Snapper"
+
+# Attach reference photos to any existing asset & re-run QA with side-by-side Ref-vs-Model comparison:
+vforge add-ref examples\mahi_mahi C:\photos\dorado_ref.jpg
+vforge qa examples\mahi_mahi\build_mahi_mahi.py --forward-axis +Y
+
+# Print a complete AI Handoff Prompt for Antigravity, Cursor, or Claude Code:
+vforge brief examples\mahi_mahi
+
+# Other core commands:
+vforge doctor                                                     # Verify Blender 5.2+, CAD venv & AI skills
+vforge install-ai --workspace C:\path\to\your\game                # Sync Antigravity, Claude & Cursor skills/rules
+vforge bake examples\mahi_mahi\bake_lod_variants.py               # Bake 2K Cycles PBR + variants + LOD0-LOD3
+vforge studio                                                     # Launch Velum Forge Studio desktop app
 ```
 
 ---
