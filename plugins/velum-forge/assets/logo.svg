@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <defs>
+    <linearGradient id="vf_cyan" x1="36" y1="36" x2="220" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="52%" stop-color="#0EA5E9"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="vf_gold" x1="64" y1="52" x2="196" y2="196" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE047"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer rounded badge with 11% margin (28..228) for clean light & dark theme contrast -->
+  <rect x="28" y="28" width="200" height="200" rx="44" fill="#0B1120" stroke="url(#vf_cyan)" stroke-width="6"/>
+  <!-- Isometric 3D CAD cube wireframe -->
+  <polygon points="128,54 196,93 196,165 128,204 60,165 60,93" fill="#111C33" stroke="url(#vf_cyan)" stroke-width="5" stroke-linejoin="round"/>
+  <polyline points="60,93 128,132 196,93" stroke="#38BDF8" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="128" y1="132" x2="128" y2="204" stroke="#38BDF8" stroke-width="4.5" stroke-linecap="round"/>
+  <!-- Precision golden Forge V-crest -->
+  <path d="M90 88 L128 164 L166 88" stroke="url(#vf_gold)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="128" cy="76" r="7" fill="#FDE047"/>
+</svg>

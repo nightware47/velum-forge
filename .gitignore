@@ -1,0 +1,32 @@
+# Python & Virtual Environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# QA & Temp Render Outputs
+.qa-out/
+.vforge-state/
+*.log
+
+# Heavy Generated 3D Binaries inside examples (source .py generators + previews are tracked!)
+examples/*/*.blend
+examples/*/*.blend1
+examples/*/*.glb
+examples/*/*.fbx
+examples/*/cad/
+examples/*/export/
+examples/*/lods/
+examples/*/rigged/
+examples/*/renders/
+examples/*/textures/
+examples/*/variants/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

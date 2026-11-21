@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "bake_res": 2048,
+  "lods": {
+    "LOD0": {
+      "tris": 97174,
+      "parts": 13,
+      "screen_size": 1.0
+    },
+    "LOD1": {
+      "tris": 46368,
+      "parts": 13,
+      "screen_size": 0.5,
+      "glb": "lods/sunrunner_24_LOD1.glb"
+    },
+    "LOD2": {
+      "tris": 24460,
+      "parts": 13,
+      "screen_size": 0.25,
+      "glb": "lods/sunrunner_24_LOD2.glb"
+    },
+    "LOD3": {
+      "tris": 12970,
+      "parts": 10,
+      "screen_size": 0.1,
+      "glb": "lods/sunrunner_24_LOD3.glb"
+    }
+  },
+  "variants": {
+    "bahama_teal": {
+      "label": "Sunrunner 24 \u2014 Bahama Teal Offshore",
+      "dir": "variants/bahama_teal",
+      "glb": "variants/bahama_teal/sunrunner_24_bahama_teal.glb",
+      "textures": {
+        "Color": "textures/bahama_teal/T_Sunrunner24_bahama_teal_Color.png",
+        "Normal": "textures/bahama_teal/T_Sunrunner24_bahama_teal_Normal.png",
+        "Roughness": "textures/bahama_teal/T_Sunrunner24_bahama_teal_Roughness.png",
+        "Metalness": "textures/bahama_teal/T_Sunrunner24_bahama_teal_Metalness.png",
+        "AO": "textures/bahama_teal/T_Sunrunner24_bahama_teal_AO.png",
+        "ORM": "textures/bahama_teal/T_Sunrunner24_bahama_teal_ORM.png"
+      }
+    },
+    "boca_grande_ice": {
+      "label": "Sunrunner 24 \u2014 Boca Grande Ice & Pearl V8",
+      "dir": "variants/boca_grande_ice",
+      "glb": "variants/boca_grande_ice/sunrunner_24_boca_grande_ice.glb",
+      "textures": {
+        "Color": "textures/boca_grande_ice/T_Sunrunner24_boca_grande_ice_Color.png",
+        "Normal": "textures/boca_grande_ice/T_Sunrunner24_boca_grande_ice_Normal.png",
+        "Roughness": "textures/boca_grande_ice/T_Sunrunner24_boca_grande_ice_Roughness.png",
+        "Metalness": "textures/boca_grande_ice/T_Sunrunner24_boca_grande_ice_Metalness.png",
+        "AO": "textures/boca_grande_ice/T_Sunrunner24_boca_grande_ice_AO.png",
+        "ORM": "textures/boca_grande_ice/T_Sunrunner24_boca_grande_ice_ORM.png"
+      }
+    },
+    "midnight_blackout": {
+      "label": "Sunrunner 24 \u2014 Midnight Carbon Blackout",
+      "dir": "variants/midnight_blackout",
+      "glb": "variants/midnight_blackout/sunrunner_24_midnight_blackout.glb",
+      "textures": {
+        "Color": "textures/midnight_blackout/T_Sunrunner24_midnight_blackout_Color.png",
+        "Normal": "textures/midnight_blackout/T_Sunrunner24_midnight_blackout_Normal.png",
+        "Roughness": "textures/midnight_blackout/T_Sunrunner24_midnight_blackout_Roughness.png",
+        "Metalness": "textures/midnight_blackout/T_Sunrunner24_midnight_blackout_Metalness.png",
+        "AO": "textures/midnight_blackout/T_Sunrunner24_midnight_blackout_AO.png",
+        "ORM": "textures/midnight_blackout/T_Sunrunner24_midnight_blackout_ORM.png"
+      }
+    },
+    "harbor_patrol": {
+      "label": "Sunrunner 24 \u2014 Coast Guard / Harbor Patrol",
+      "dir": "variants/harbor_patrol",
+      "glb": "variants/harbor_patrol/sunrunner_24_harbor_patrol.glb",
+      "textures": {
+        "Color": "textures/harbor_patrol/T_Sunrunner24_harbor_patrol_Color.png",
+        "Normal": "textures/harbor_patrol/T_Sunrunner24_harbor_patrol_Normal.png",
+        "Roughness": "textures/harbor_patrol/T_Sunrunner24_harbor_patrol_Roughness.png",
+        "Metalness": "textures/harbor_patrol/T_Sunrunner24_harbor_patrol_Metalness.png",
+        "AO": "textures/harbor_patrol/T_Sunrunner24_harbor_patrol_AO.png",
+        "ORM": "textures/harbor_patrol/T_Sunrunner24_harbor_patrol_ORM.png"
+      }
+    }
+  }
+}

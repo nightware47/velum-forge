@@ -1,0 +1,17 @@
+{
+  "name": "velum-forge",
+  "displayName": "Velum Forge 3D Studio",
+  "version": "1.0.0",
+  "description": "End-to-end AI 3D asset engineering suite: precision build123d B-Rep CAD, Blender 5.2+ parametric/organic modeling, BVH shell-clipping gates, 10-view visual QA, 2K Cycles GPU PBR baking, multi-variant pipelines, and 4-tier game LODs.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "Velumix",
+    "url": "https://github.com/velumix"
+  },
+  "repository": "https://github.com/velumix/velum-forge",
+  "suggestedPrompts": [
+    "Build a new game-ready 3D vehicle or boat with CAD hardware, zero-clipping BVH verification, 2K Cycles PBR bakes, 4 variants, and LOD0-LOD3",
+    "Create an anatomically accurate rigged creature or fish species with 2048x2048 baked scales/normal maps, 4 rarity variants, and 10-view Roblox QA",
+    "Run the Velum Forge 10-view visual & geometric QA gate on my 3D asset and fix all errors and warnings"
+  ]
+}

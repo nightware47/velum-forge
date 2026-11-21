@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "species": "Coryphaena hippurus (Mahi-Mahi / Dorado)",
+  "loa_m": 1.2,
+  "bake_res": 2048,
+  "swim_rig_glb": "rigged/mahi_mahi_swim_rigged.glb",
+  "lods": {
+    "LOD0": {
+      "tris": 40124,
+      "parts": 6,
+      "screen_size": 1.0
+    },
+    "LOD1": {
+      "tris": 19712,
+      "parts": 6,
+      "screen_size": 0.5,
+      "glb": "lods/mahi_mahi_LOD1.glb"
+    },
+    "LOD2": {
+      "tris": 9852,
+      "parts": 6,
+      "screen_size": 0.25,
+      "glb": "lods/mahi_mahi_LOD2.glb"
+    },
+    "LOD3": {
+      "tris": 4512,
+      "parts": 6,
+      "screen_size": 0.1,
+      "glb": "lods/mahi_mahi_LOD3.glb"
+    }
+  },
+  "variants": {
+    "bull_dorado": {
+      "label": "Mahi-Mahi \u2014 Trophy Bull Dorado (Common / Flagship)",
+      "rarity": "Common",
+      "bull_crest": 1.0,
+      "dir": "variants/bull_dorado",
+      "glb": "variants/bull_dorado/mahi_mahi_bull_dorado.glb",
+      "textures": {
+        "Color": "textures/bull_dorado/T_MahiMahi_bull_dorado_Color.png",
+        "Normal": "textures/bull_dorado/T_MahiMahi_bull_dorado_Normal.png",
+        "Roughness": "textures/bull_dorado/T_MahiMahi_bull_dorado_Roughness.png",
+        "Metalness": "textures/bull_dorado/T_MahiMahi_bull_dorado_Metalness.png",
+        "AO": "textures/bull_dorado/T_MahiMahi_bull_dorado_AO.png",
+        "ORM": "textures/bull_dorado/T_MahiMahi_bull_dorado_ORM.png"
+      }
+    },
+    "blue_phase_lit": {
+      "label": "Mahi-Mahi \u2014 Lit-Up Electric Blue Cow (Uncommon Hunting Phase)",
+      "rarity": "Uncommon",
+      "bull_crest": 0.38,
+      "dir": "variants/blue_phase_lit",
+      "glb": "variants/blue_phase_lit/mahi_mahi_blue_phase_lit.glb",
+      "textures": {
+        "Color": "textures/blue_phase_lit/T_MahiMahi_blue_phase_lit_Color.png",
+        "Normal": "textures/blue_phase_lit/T_MahiMahi_blue_phase_lit_Normal.png",
+        "Roughness": "textures/blue_phase_lit/T_MahiMahi_blue_phase_lit_Roughness.png",
+        "Metalness": "textures/blue_phase_lit/T_MahiMahi_blue_phase_lit_Metalness.png",
+        "AO": "textures/blue_phase_lit/T_MahiMahi_blue_phase_lit_AO.png",
+        "ORM": "textures/blue_phase_lit/T_MahiMahi_blue_phase_lit_ORM.png"
+      }
+    },
+    "sunset_coral": {
+      "label": "Mahi-Mahi \u2014 Sunset Coral Reef Dorado (Rare Deep-Drop)",
+      "rarity": "Rare",
+      "bull_crest": 0.46,
+      "dir": "variants/sunset_coral",
+      "glb": "variants/sunset_coral/mahi_mahi_sunset_coral.glb",
+      "textures": {
+        "Color": "textures/sunset_coral/T_MahiMahi_sunset_coral_Color.png",
+        "Normal": "textures/sunset_coral/T_MahiMahi_sunset_coral_Normal.png",
+        "Roughness": "textures/sunset_coral/T_MahiMahi_sunset_coral_Roughness.png",
+        "Metalness": "textures/sunset_coral/T_MahiMahi_sunset_coral_Metalness.png",
+        "AO": "textures/sunset_coral/T_MahiMahi_sunset_coral_AO.png",
+        "ORM": "textures/sunset_coral/T_MahiMahi_sunset_coral_ORM.png"
+      }
+    },
+    "albino_gold_legendary": {
+      "label": "Mahi-Mahi \u2014 24K Ghost Bull Dorado (Legendary 1-in-1,000)",
+      "rarity": "Legendary",
+      "bull_crest": 1.05,
+      "dir": "variants/albino_gold_legendary",
+      "glb": "variants/albino_gold_legendary/mahi_mahi_albino_gold_legendary.glb",
+      "textures": {
+        "Color": "textures/albino_gold_legendary/T_MahiMahi_albino_gold_legendary_Color.png",
+        "Normal": "textures/albino_gold_legendary/T_MahiMahi_albino_gold_legendary_Normal.png",
+        "Roughness": "textures/albino_gold_legendary/T_MahiMahi_albino_gold_legendary_Roughness.png",
+        "Metalness": "textures/albino_gold_legendary/T_MahiMahi_albino_gold_legendary_Metalness.png",
+        "AO": "textures/albino_gold_legendary/T_MahiMahi_albino_gold_legendary_AO.png",
+        "ORM": "textures/albino_gold_legendary/T_MahiMahi_albino_gold_legendary_ORM.png"
+      }
+    }
+  }
+}

@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Velum Forge Studio — B-Rep CAD, 2K Cycles PBR & Game Asset Pipeline</title>
+  <style>
+    :root {
+      --bg-base: #070b14;
+      --bg-panel: rgba(15, 23, 42, 0.82);
+      --bg-card: rgba(22, 33, 58, 0.72);
+      --bg-hover: rgba(34, 50, 84, 0.85);
+      --border: rgba(148, 163, 184, 0.16);
+      --border-glow: rgba(34, 211, 238, 0.45);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --cyan: #22d3ee;
+      --blue: #38bdf8;
+      --gold: #fbbf24;
+      --green: #22c55e;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at 12% 8%, #0f2442 0%, var(--bg-base) 52%);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+    /* Sidebar */
+    aside {
+      width: 268px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      backdrop-filter: blur(18px);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 14px;
+      flex-shrink: 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 10px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .brand-badge {
+      width: 40px; height: 40px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      display: grid; place-items: center;
+      font-weight: 800; color: #fde047; font-size: 19px;
+      box-shadow: 0 0 20px rgba(34, 211, 238, 0.32);
+    }
+    .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+    .brand span { font-size: 11.5px; color: var(--cyan); display: block; margin-top: 2px; }
+
+    .nav-btn {
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      padding: 11px 14px;
+      border-radius: 10px;
+      text-align: left;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
+      transition: all 0.16s ease;
+    }
+    .nav-btn:hover { background: var(--bg-hover); color: var(--text); }
+    .nav-btn.active {
+      background: rgba(14, 165, 233, 0.16);
+      border-color: var(--border-glow);
+      color: #fff;
+    }
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    /* Main Content */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      height: 64px;
+      padding: 0 28px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(11, 17, 32, 0.72);
+      backdrop-filter: blur(12px);
+      flex-shrink: 0;
+    }
+    header h2 { font-size: 17px; font-weight: 700; }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+
+    .btn {
+      padding: 8px 15px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn:hover { border-color: var(--cyan); background: var(--bg-hover); }
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      border-color: rgba(56, 189, 248, 0.55);
+      color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.12); }
+    .btn-gold {
+      background: linear-gradient(135deg, #d97706, #b45309);
+      border-color: rgba(251, 191, 36, 0.55);
+      color: #fff;
+    }
+
+    .view { display: none; flex: 1; overflow-y: auto; padding: 24px 28px; }
+    .view.active { display: block; }
+
+    /* Asset Layout */
+    .studio-split {
+      display: grid;
+      grid-template-columns: 330px 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+    .asset-list { display: flex; flex-direction: column; gap: 10px; }
+    .asset-item {
+      padding: 14px;
+      border-radius: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .asset-item:hover { border-color: rgba(56, 189, 248, 0.4); }
+    .asset-item.selected {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+      background: rgba(14, 165, 233, 0.13);
+    }
+    .asset-item h3 { font-size: 14.5px; margin-bottom: 4px; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .pill {
+      font-size: 11px; padding: 2px 8px; border-radius: 99px;
+      background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); color: var(--muted);
+    }
+    .pill.ok { color: #4ade80; border-color: rgba(34, 197, 94, 0.38); }
+    .pill.cyan { color: var(--cyan); border-color: rgba(34, 211, 238, 0.35); }
+
+    /* Detail Panel */
+    .detail-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+    }
+    .detail-top {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 16px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .hero-stage {
+      width: 100%;
+      aspect-ratio: 16 / 9.5;
+      background: #0a101f;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      display: grid; place-items: center;
+      margin-bottom: 14px;
+    }
+    .hero-stage img { width: 100%; height: 100%; object-fit: contain; }
+    .thumb-strip {
+      display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 18px;
+    }
+    .thumb {
+      width: 116px; height: 72px; border-radius: 8px; overflow: hidden;
+      border: 2px solid transparent; cursor: pointer; flex-shrink: 0; background: #0b1324;
+      position: relative;
+    }
+    .thumb.active { border-color: var(--cyan); }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .thumb span {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(7, 11, 20, 0.82); font-size: 10px; padding: 2px 5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .metrics-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+      gap: 12px; margin-top: 14px;
+    }
+    .metric-box {
+      padding: 12px 14px; border-radius: 10px;
+      background: rgba(10, 16, 31, 0.72); border: 1px solid var(--border);
+    }
+    .metric-box label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
+    .metric-box strong { font-size: 15px; color: var(--text); }
+
+    /* Doctor & Form Cards */
+    .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+    .check-card {
+      padding: 16px 18px; border-radius: 12px; background: var(--bg-card);
+      border: 1px solid var(--border); display: flex; gap: 14px; align-items: flex-start;
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+    .dot.ok { background: var(--green); box-shadow: 0 0 12px var(--green); }
+    .dot.warn { background: var(--gold); box-shadow: 0 0 12px var(--gold); }
+
+    .form-card {
+      max-width: 640px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px;
+    }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+    .field input, .field select {
+      width: 100%; padding: 10px 12px; border-radius: 9px;
+      border: 1px solid var(--border); background: #0a1120; color: #fff; font-size: 13.5px;
+    }
+
+    pre.md-box {
+      background: #090f1d; border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px; color: #cbd5e1; font-family: Consolas, "JetBrains Mono", monospace;
+      font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; max-height: 62vh; overflow-y: auto;
+    }
+
+    /* Live Console Drawer */
+    .console-drawer {
+      height: 210px; background: #050811; border-top: 1px solid var(--border);
+      display: none; flex-direction: column; flex-shrink: 0;
+    }
+    .console-drawer.open { display: flex; }
+    .console-bar {
+      padding: 7px 18px; background: #0c1426; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center; font-size: 12px;
+    }
+    .console-out {
+      flex: 1; padding: 12px 18px; overflow-y: auto;
+      font-family: Consolas, monospace; font-size: 12px; color: #a5f3fc; white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <aside>
+    <div class="brand">
+      <div class="brand-badge">V</div>
+      <div>
+        <h1>Velum Forge</h1>
+        <span>3D CAD &bull; PBR &bull; QA Studio</span>
+      </div>
+    </div>
+    <button class="nav-btn active" onclick="switchTab('assets', this)">
+      <span>Showroom &amp; Assets</span>
+      <span id="asset-count" class="pill cyan">0</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('doctor', this)">
+      <span>Environment Doctor</span>
+      <span id="doc-badge" class="pill">...</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('scaffold', this)">
+      <span>New Asset Wizard</span>
+      <span>+</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('skills', this)">
+      <span>AI Skills &amp; Rules</span>
+      <span class="pill cyan">5</span>
+    </button>
+
+    <div class="sidebar-footer">
+      <strong style="color:#fff;">6-Gate Pipeline Active</strong><br/>
+      B-Rep CAD &rarr; BMesh `S^2` &rarr; BVH Shell Gate &rarr; 10-View QA &rarr; 2K Cycles OPTIX Bake &rarr; 4-Tier LODs.
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <h2 id="view-title">Asset Showroom &amp; PBR / LOD Inspector</h2>
+      <div class="header-actions">
+        <button class="btn" onclick="toggleConsole()">Pipeline Console</button>
+        <button class="btn btn-primary" onclick="syncAiSkills()">Sync AI Skills (Antigravity + Claude)</button>
+      </div>
+    </header>
+
+    <!-- TAB 1: ASSETS -->
+    <section id="tab-assets" class="view active">
+      <div class="studio-split">
+        <div class="asset-list" id="asset-list"></div>
+        <div id="asset-detail" class="detail-card">
+          <p style="color:var(--muted);">Loading discovered 3D assets...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: DOCTOR -->
+    <section id="tab-doctor" class="view">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <p style="color:var(--muted);font-size:13.5px;">Verifies Blender 5.2+ LTS, OpenCascade `build123d` CAD venv, PyMeshLab/Trimesh QA, and global AI agent customizations.</p>
+        <button class="btn" onclick="loadDoctor()">Re-Scan System</button>
+      </div>
+      <div class="check-grid" id="doctor-grid"></div>
+    </section>
+
+    <!-- TAB 3: SCAFFOLD -->
+    <section id="tab-scaffold" class="view">
+      <div class="form-card">
+        <h3 style="margin-bottom:6px;">Scaffold New Game-Ready 3D Asset</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Generates a clean meter-scaled builder + BVH integrity gate + 2048x2048 Cycles PBR baker &amp; 4-tier LOD script.</p>
+        <div class="field">
+          <label>Archetype / Pipeline Template</label>
+          <select id="sc-kind">
+            <option value="boat">Hard-Surface Vehicle / Naval Vessel (Hybrid CAD + Hull Loft + 4-Tier LODs)</option>
+            <option value="fish">Organic Creature / Pelagic Fish (Closed S^2 Manifolds + Polar Eyes + Swim Rig)</option>
+            <option value="cad">Precision Mechanical Hardware (`build123d` OpenCascade STEP + GLB)</option>
+            <option value="prop">Game Environment Prop (Watertight PBR + 4-Tier LODs)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Asset Name / Slug</label>
+          <input id="sc-name" type="text" placeholder="e.g. yellowfin_tuna or harbor_tug_32" />
+        </div>
+        <button class="btn btn-primary" onclick="createAsset()">Create Asset Scaffold</button>
+        <p id="sc-msg" style="margin-top:14px;font-size:13px;color:#4ade80;"></p>
+      </div>
+    </section>
+
+    <!-- TAB 4: AI SKILLS -->
+    <section id="tab-skills" class="view">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;" id="skill-tabs"></div>
+      <pre class="md-box" id="skill-content">Loading skills...</pre>
+    </section>
+
+    <!-- LIVE CONSOLE -->
+    <div class="console-drawer" id="console-drawer">
+      <div class="console-bar">
+        <strong id="job-title">Pipeline Ready</strong>
+        <button class="btn" style="padding:3px 10px;font-size:11px;" onclick="toggleConsole()">Hide</button>
+      </div>
+      <div class="console-out" id="console-out">No active background jobs.</div>
+    </div>
+  </main>
+
+  <script>
+    let ASSETS = [];
+    let SELECTED_IDX = 0;
+    let SKILLS = [];
+    let ACTIVE_JOB = null;
+
+    function switchTab(id, btn) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + id).classList.add('active');
+      btn.classList.add('active');
+      const titles = {
+        assets: 'Asset Showroom & PBR / LOD Inspector',
+        doctor: 'System & Toolchain Environment Doctor',
+        scaffold: 'Scaffold New 3D Asset Project',
+        skills: 'Bundled AI Agent Skills & Blender 5.2 Guardrails'
+      };
+      document.getElementById('view-title').textContent = titles[id] || 'Velum Forge Studio';
+    }
+
+    function toggleConsole(forceOpen) {
+      const d = document.getElementById('console-drawer');
+      if (forceOpen === true) d.classList.add('open');
+      else d.classList.toggle('open');
+    }
+
+    function fileUrl(p) {
+      return '/api/file?path=' + encodeURIComponent(p);
+    }
+
+    async function loadDoctor() {
+      const res = await fetch('/api/doctor');
+      const data = await res.json();
+      const badge = document.getElementById('doc-badge');
+      badge.textContent = data.ok ? 'PASS' : 'SETUP';
+      badge.className = 'pill ' + (data.ok ? 'ok' : '');
+      const grid = document.getElementById('doctor-grid');
+      grid.innerHTML = data.checks.map(c => `
+        <div class="check-card">
+          <div class="dot ${c.ok ? 'ok' : 'warn'}"></div>
+          <div>
+            <strong style="font-size:14px;display:block;margin-bottom:4px;">${c.label}</strong>
+            <span style="font-size:12px;color:var(--muted);word-break:break-all;">${c.detail}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadAssets() {
+      const res = await fetch('/api/assets');
+      const data = await res.json();
+      ASSETS = data.assets || [];
+      document.getElementById('asset-count').textContent = ASSETS.length;
+      renderAssetList();
+      if (ASSETS.length > 0) selectAsset(Math.min(SELECTED_IDX, ASSETS.length - 1));
+    }
+
+    function renderAssetList() {
+      const el = document.getElementById('asset-list');
+      el.innerHTML = ASSETS.map((a, i) => {
+        const lod0 = a.report?.lods?.LOD0?.tris;
+        const vCount = a.report?.variants ? Object.keys(a.report.variants).length : 0;
+        return `
+          <div class="asset-item ${i === SELECTED_IDX ? 'selected' : ''}" onclick="selectAsset(${i})">
+            <h3>${a.title}</h3>
+            <span style="font-size:11.5px;color:var(--muted);">${a.source}</span>
+            <div class="pill-row">
+              ${lod0 ? `<span class="pill cyan">${lod0.toLocaleString()} tris</span>` : ''}
+              ${vCount ? `<span class="pill ok">${vCount} Baked Variants</span>` : ''}
+              ${a.report?.lods?.LOD3 ? `<span class="pill">LOD0–LOD3</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectAsset(idx) {
+      SELECTED_IDX = idx;
+      renderAssetList();
+      const a = ASSETS[idx];
+      const box = document.getElementById('asset-detail');
+      if (!a) return;
+
+      const allThumbs = [
+        ...a.images.map(im => ({ label: im.label, path: im.path })),
+        ...a.pbr_maps.map(mp => ({ label: '2K PBR: ' + mp.label, path: mp.path }))
+      ];
+      const initialImg = a.hero_image || (allThumbs[0] && allThumbs[0].path) || '';
+      const lods = a.report?.lods || {};
+      const lodHtml = Object.entries(lods).map(([k, v]) => `
+        <div class="metric-box">
+          <label>${k} (screen ${v.screen_size ?? 1.0})</label>
+          <strong>${(v.tris || 0).toLocaleString()} tris &bull; ${v.parts || '-'} parts</strong>
+        </div>
+      `).join('');
+
+      box.innerHTML = `
+        <div class="detail-top">
+          <div>
+            <h2 style="font-size:20px;margin-bottom:4px;">${a.title}</h2>
+            <span style="font-size:12px;color:var(--muted);word-break:break-all;">${a.dir}</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${a.blend_file ? `<button class="btn btn-gold" onclick="openBlender('${a.blend_file.replace(/\\/g, '\\\\')}')">Open .blend in Blender 5.2</button>` : ''}
+            ${a.build_script ? `<button class="btn" onclick="runQa('${a.build_script.replace(/\\/g, '\\\\')}')">Run 10-View QA Gate</button>` : ''}
+            ${a.bake_script ? `<button class="btn btn-primary" onclick="runBake('${a.bake_script.replace(/\\/g, '\\\\')}')">Bake 2K PBR + Variants + LODs</button>` : ''}
+          </div>
+        </div>
+        ${initialImg ? `
+          <div class="hero-stage"><img id="main-stage-img" src="${fileUrl(initialImg)}" alt="Render" /></div>
+          <div class="thumb-strip">
+            ${allThumbs.map((t, ti) => `
+              <div class="thumb ${ti === 0 ? 'active' : ''}" onclick="setStageImg('${t.path.replace(/\\/g, '\\\\')}', this)">
+                <img src="${fileUrl(t.path)}" />
+                <span>${t.label}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : `<div class="hero-stage"><span style="color:var(--muted);">Click "Run 10-View QA Gate" or "Bake 2K PBR" to generate renders</span></div>`}
+        ${lodHtml ? `<h4 style="font-size:13px;color:var(--cyan);margin-bottom:4px;">Verified 4-Tier Game LOD Chain (${a.report.bake_res || 2048}px Shared PBR Atlas)</h4><div class="metrics-grid">${lodHtml}</div>` : ''}
+      `;
+    }
+
+    function setStageImg(p, el) {
+      document.getElementById('main-stage-img').src = fileUrl(p);
+      document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+    }
+
+    async function openBlender(path) {
+      const r = await fetch('/api/open-blender', { method: 'POST', body: JSON.stringify({ path }) });
+      const d = await r.json();
+      if (!d.ok) alert(d.error || 'Could not launch Blender');
+    }
+
+    async function runQa(path) {
+      toggleConsole(true);
+      const r = await fetch('/api/run-qa', { method: 'POST', body: JSON.stringify({ path, profile: 'roblox', forward_axis: '+Y' }) });
+      const d = await r.json();
+      if (d.job_id) watchJob(d.job_id);
+    }
+
+    async function runBake(path) {
+      toggleConsole(true);
+      const r = await fetch('/api/run-bake', { method: 'POST', body: JSON.stringify({ path }) });
+      const d = await r.json();
+      if (d.job_id) watchJob(d.job_id);
+    }
+
+    function watchJob(jid) {
+      ACTIVE_JOB = jid;
+      const poll = setInterval(async () => {
+        const r = await fetch('/api/jobs?id=' + jid);
+        const j = await r.json();
+        document.getElementById('job-title').textContent = `${j.title} [${j.status.toUpperCase()}]`;
+        const out = document.getElementById('console-out');
+        out.textContent = j.logs || '';
+        out.scrollTop = out.scrollHeight;
+        if (j.status !== 'running') {
+          clearInterval(poll);
+          loadAssets();
+        }
+      }, 850);
+    }
+
+    async function syncAiSkills() {
+      const r = await fetch('/api/install-ai', { method: 'POST', body: JSON.stringify({ antigravity: true, claude_code: true }) });
+      const d = await r.json();
+      if (d.ok) {
+        await loadDoctor();
+        alert('Installed Velum Forge plugin & skills to Antigravity (~/.gemini/config/plugins/velum-forge) and Claude Code (~/.claude/skills)!');
+      }
+    }
+
+    async function createAsset() {
+      const kind = document.getElementById('sc-kind').value;
+      const name = document.getElementById('sc-name').value.trim();
+      if (!name) return;
+      const r = await fetch('/api/scaffold', { method: 'POST', body: JSON.stringify({ kind, name }) });
+      const d = await r.json();
+      if (d.ok) {
+        document.getElementById('sc-msg').textContent = 'Created: ' + d.created.dir;
+        await loadAssets();
+      }
+    }
+
+    async function loadSkills() {
+      const r = await fetch('/api/skills');
+      const d = await r.json();
+      SKILLS = d.skills || [];
+      const bar = document.getElementById('skill-tabs');
+      bar.innerHTML = SKILLS.map((s, i) => `<button class="btn" onclick="showSkill(${i})">${s.name}</button>`).join('');
+      if (SKILLS.length) showSkill(0);
+    }
+
+    function showSkill(i) {
+      document.getElementById('skill-content').textContent = SKILLS[i]?.content || '';
+    }
+
+    loadDoctor();
+    loadAssets();
+    loadSkills();
+  </script>
+</body>
+</html>

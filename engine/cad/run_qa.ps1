@@ -1,0 +1,207 @@
+<#
+.SYNOPSIS
+Velum Forge 1-command visual & geometric 10-view QA gate (CAD scripts, Blender scripts, .blend, GLB/FBX/OBJ/STL/STEP).
+
+.EXAMPLE
+.\engine\cad\run_qa.ps1 -Asset examples\mahi_mahi\build_mahi_mahi.py -Profile roblox -ForwardAxis "+Y"
+.\engine\cad\run_qa.ps1 -Asset engine\cad\templates\cad_part_template.py -Profile render
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [Alias("Path", "File", "InputPath")]
+    [string]$Asset,
+
+    [string]$OutDir = "",
+    [string]$Collection = "",
+    [string[]]$Objects = @(),
+
+    [ValidateSet("roblox", "game", "render", "print")]
+    [string]$Profile = "roblox",
+
+    [ValidateSet("auto", "cycles", "workbench")]
+    [string]$Renderer = "auto",
+
+    [switch]$Fast,
+    [string]$Ref = "",
+    [switch]$KeepTiles,
+    [switch]$NoFailExit,
+
+    [ValidateSet("auto", "blender", "cad")]
+    [string]$Mode = "auto",
+
+    [ValidateSet("-Y", "+Y")]
+    [string]$ForwardAxis = "-Y"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$CadBridge = Join-Path $RepoRoot "engine\cad\cad_bridge.py"
+$ComposeScript = Join-Path $RepoRoot "engine\cad\compose_sheet.py"
+$QaPipeline = Join-Path $RepoRoot "engine\blender\qa_pipeline.py"
+
+# Locate CAD/Studio Python venv (falls back to system python)
+$CadPythonCandidates = @(
+    (Join-Path $RepoRoot ".venv\Scripts\python.exe"),
+    (Join-Path $RepoRoot "engine\cad\.venv\Scripts\python.exe")
+)
+$CadPython = $null
+foreach ($c in $CadPythonCandidates) {
+    if (Test-Path $c) { $CadPython = $c; break }
+}
+if (-not $CadPython) {
+    $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pyCmd) { $CadPython = $pyCmd.Source }
+}
+if (-not $CadPython) {
+    throw "Python venv not found. Run .\install.ps1 or Setup-VelumForge.cmd first."
+}
+
+# Locate Blender 5.2+ executable
+$BlenderCandidates = @(
+    $env:VELUM_BLENDER_EXE,
+    "C:\Program Files\Blender Foundation\Blender 5.3\blender.exe",
+    "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"
+) | Where-Object { $_ -and (Test-Path $_) }
+
+$BlenderExe = if ($BlenderCandidates.Count -gt 0) { $BlenderCandidates[0] } else { $null }
+if (-not $BlenderExe) {
+    $bCmd = Get-Command blender -ErrorAction SilentlyContinue
+    if ($bCmd) { $BlenderExe = $bCmd.Source }
+}
+if (-not $BlenderExe -or -not (Test-Path $BlenderExe)) {
+    throw "Blender 5.2+ executable not found. Install Blender 5.2 LTS or set VELUM_BLENDER_EXE."
+}
+
+$AssetPath = (Resolve-Path $Asset).Path
+$AssetStem = [System.IO.Path]::GetFileNameWithoutExtension($AssetPath)
+$Ext = [System.IO.Path]::GetExtension($AssetPath).ToLowerInvariant()
+
+if ([string]::IsNullOrWhiteSpace($OutDir)) {
+    $OutDir = Join-Path $RepoRoot (Join-Path ".qa-out" $AssetStem)
+} elseif (-not [System.IO.Path]::IsPathRooted($OutDir)) {
+    $OutDir = Join-Path (Get-Location).Path $OutDir
+}
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$OutDir = (Resolve-Path $OutDir).Path
+
+function Invoke-NativeQuiet {
+    param([string]$Exe, [string[]]$ArgList, [string]$LogFile = "")
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        if ($LogFile) {
+            & $Exe @ArgList 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $LogFile -Encoding utf8
+        } else {
+            & $Exe @ArgList 2>&1 | ForEach-Object { "$_" } | Out-Host
+        }
+        return [int]$LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
+$BlenderArgs = @("-b")
+$PipelineArgs = @("--out-dir", $OutDir, "--profile", $Profile, "--renderer", $Renderer, "--asset-name", $AssetStem, "--forward-axis", $ForwardAxis)
+if ($Fast) { $PipelineArgs += "--fast" }
+if (-not [string]::IsNullOrWhiteSpace($Collection)) { $PipelineArgs += @("--collection", $Collection) }
+if ($Objects.Count -gt 0) { $PipelineArgs += "--objects"; $PipelineArgs += $Objects }
+
+if ($Ext -eq ".blend") {
+    $BlenderArgs += @($AssetPath, "--python-exit-code", "1", "-P", $QaPipeline, "--") + $PipelineArgs
+} elseif ($Ext -in @(".step", ".stp")) {
+    $ConvertedGlb = Join-Path $OutDir "_converted.glb"
+    Write-Host "[vforge-qa] Converting STEP -> GLB via cad_bridge..." -ForegroundColor Cyan
+    $ec = Invoke-NativeQuiet $CadPython @($CadBridge, "step-to-glb", $AssetPath, $ConvertedGlb)
+    if ($ec -ne 0) { throw "STEP conversion failed for $AssetPath" }
+    $PipelineArgs = @("--input", $ConvertedGlb) + $PipelineArgs
+    $BlenderArgs += @("--python-exit-code", "1", "-P", $QaPipeline, "--") + $PipelineArgs
+} elseif ($Ext -eq ".py") {
+    $RunAsCad = $false
+    if ($Mode -eq "cad") { $RunAsCad = $true }
+    elseif ($Mode -eq "auto") {
+        $RawSrc = Get-Content -Raw -Path $AssetPath
+        if ($RawSrc -match "\bbuild123d\b" -and $RawSrc -notmatch "\bbpy\b") { $RunAsCad = $true }
+    }
+    if ($RunAsCad) {
+        $CadBuildDir = Join-Path $OutDir "_cad_build"
+        New-Item -ItemType Directory -Force -Path $CadBuildDir | Out-Null
+        Write-Host "[vforge-qa] Running build123d CAD script..." -ForegroundColor Cyan
+        $ec = Invoke-NativeQuiet $CadPython @($AssetPath, "--out-dir", $CadBuildDir)
+        if ($ec -ne 0) { throw "CAD script failed: $AssetPath" }
+        $NewestGlb = Get-ChildItem -Path $CadBuildDir -Filter "*.glb" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $NewestGlb) { throw "CAD script produced no .glb output in $CadBuildDir" }
+        $PipelineArgs = @("--input", $NewestGlb.FullName) + $PipelineArgs
+        $BlenderArgs += @("--python-exit-code", "1", "-P", $QaPipeline, "--") + $PipelineArgs
+    } else {
+        $PipelineArgs = @("--input", $AssetPath) + $PipelineArgs
+        $BlenderArgs += @("--python-exit-code", "1", "-P", $QaPipeline, "--") + $PipelineArgs
+    }
+} else {
+    $PipelineArgs = @("--input", $AssetPath) + $PipelineArgs
+    $BlenderArgs += @("--python-exit-code", "1", "-P", $QaPipeline, "--") + $PipelineArgs
+}
+
+Write-Host "[vforge-qa] Running headless Blender 5.2+ QA & multi-angle renders..." -ForegroundColor Cyan
+$BlenderLog = Join-Path $OutDir "blender_qa.log"
+$ecBlender = Invoke-NativeQuiet $BlenderExe $BlenderArgs $BlenderLog
+if ($ecBlender -ne 0) {
+    Get-Content $BlenderLog -Tail 40
+    throw "Blender QA pipeline failed (exit $ecBlender). Full log: $BlenderLog"
+}
+
+$QaJson = Join-Path $OutDir "qa_report.json"
+$ManifestJson = Join-Path $OutDir "render_manifest.json"
+$OutMaterial = Join-Path $OutDir "contact_sheet_material.png"
+$OutDiagnostic = Join-Path $OutDir "contact_sheet_diagnostic.png"
+$OutRef = Join-Path $OutDir "ref_comparison.png"
+
+$ComposeArgs = @(
+    $ComposeScript,
+    "--manifest", $ManifestJson,
+    "--qa-json", $QaJson,
+    "--out-material", $OutMaterial,
+    "--out-diagnostic", $OutDiagnostic
+)
+if (-not [string]::IsNullOrWhiteSpace($Ref)) {
+    $RefPath = (Resolve-Path $Ref).Path
+    $ComposeArgs += @("--ref", $RefPath, "--out-ref", $OutRef)
+}
+
+Write-Host "[vforge-qa] Composing labeled contact sheets..." -ForegroundColor Cyan
+$ecCompose = Invoke-NativeQuiet $CadPython $ComposeArgs
+if ($ecCompose -ne 0) { throw "Contact sheet composition failed." }
+
+if (-not $KeepTiles) {
+    Get-ChildItem -Path $OutDir -Filter "tile_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
+    if (Test-Path $ManifestJson) { Remove-Item $ManifestJson -Force }
+}
+
+$Qa = Get-Content -Raw -Path $QaJson | ConvertFrom-Json
+$PassFlag = [bool]$Qa.pass
+$Badge = if ($PassFlag) { "PASS" } else { "FAIL" }
+$Color = if ($PassFlag) { "Green" } else { "Red" }
+
+Write-Host ""
+Write-Host "=== Velum Forge Visual QA [$Badge] ===" -ForegroundColor $Color
+Write-Host ("Asset:      {0} (profile={1}, renderer={2})" -f $Qa.asset_name, $Qa.profile, $Qa.renderer)
+Write-Host ("Geometry:   {0} tris across {1} mesh(es) | ground_z={2} m" -f $Qa.total_tris, $Qa.object_count, $Qa.ground_z)
+Write-Host ("Size (m):   {0} x {1} x {2}" -f $Qa.size_m[0], $Qa.size_m[1], $Qa.size_m[2])
+Write-Host ("Studs(3/m): {0} x {1} x {2}" -f $Qa.size_studs_sclib[0], $Qa.size_studs_sclib[1], $Qa.size_studs_sclib[2])
+Write-Host ("Material:   $OutMaterial")
+Write-Host ("Diagnostic: $OutDiagnostic")
+Write-Host ("Report:     $QaJson")
+
+if ($Qa.errors.Count -gt 0) {
+    Write-Host "Errors:" -ForegroundColor Red
+    foreach ($e in $Qa.errors) { Write-Host "  - $e" -ForegroundColor Red }
+}
+if ($Qa.warnings.Count -gt 0) {
+    Write-Host "Warnings:" -ForegroundColor Yellow
+    foreach ($w in $Qa.warnings) { Write-Host "  - $w" -ForegroundColor Yellow }
+}
+
+if ((-not $PassFlag) -and (-not $NoFailExit)) { exit 1 }
+exit 0

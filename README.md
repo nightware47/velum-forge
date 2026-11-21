@@ -1,0 +1,88 @@
+<div align="center">
+  <img src="plugins/velum-forge/assets/logo.svg" width="108" height="108" alt="Velum Forge Logo" />
+  <h1>Velum Forge</h1>
+  <p><strong>AI-Driven Precision B-Rep CAD, Blender 5.2+ Cycles GPU PBR Baking, 4-Tier LOD &amp; Game Asset Studio</strong></p>
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22c55e.svg" alt="MIT License" /></a>
+    <img src="https://img.shields.io/badge/Blender-5.2%2B%20LTS-0ea5e9.svg" alt="Blender 5.2+" />
+    <img src="https://img.shields.io/badge/CAD-build123d%20%2F%20OpenCascade-6366f1.svg" alt="build123d" />
+    <img src="https://img.shields.io/badge/AI%20Agents-Antigravity%20%7C%20Claude%20%7C%20Codex%20%7C%20Cursor-fbbf24.svg" alt="AI Ready" />
+  </p>
+</div>
+
+---
+
+**Velum Forge** turns AI coding agents (**Google Antigravity**, **Claude Code CLI**, **Codex**, **Cursor**) into deterministic, studio-grade 3D asset engineers. Instead of fragile primitive kitbashing or un-exportable procedural shaders, Velum Forge enforces a **6-Gate Production Pipeline** combining OpenCascade B-Rep CAD (`build123d`), closed `S^2` `bmesh` surfacing, hard `BVHTree` shell-clipping gates, 10-view automated visual QA, `2048x2048` Cycles `OPTIX` GPU PBR texture baking, multi-variant generation, and seam-locked `LOD0`–`LOD3` chains.
+
+## Showcase — Built 100% Programmatically with Velum Forge
+
+### 1. Hard-Surface & Naval Architecture (`examples/sunrunner_24`)
+*24-ft Offshore Center-Console Sportfisher — `build123d` CAD helm/cleats/prop + parametric Carolina-flare hull + `0` BVH shell breaches + `2048x2048` Cycles-baked Burmese teak, diamond non-skid & sonar UI + 4 showroom/patrol variants + `LOD0`–`LOD3` (`97.2k -> 13.0k` tris).*
+
+| 4 Baked Showroom & Roleplay Variants | Macro Close-Up (`2048x2048` Baked Teak & Non-Skid) |
+| :---: | :---: |
+| ![Sunrunner 24 Variants](docs/images/sunrunner24_variants.png) | ![Sunrunner 24 Baked Closeup](docs/images/sunrunner24_baked_closeup.png) |
+
+### 2. Organic Wildlife & Pelagic Anatomy (`examples/mahi_mahi`)
+*Offshore Trophy Mahi-Mahi (`Coryphaena hippurus`, `1.20 m` LOA) — Closed `S^2` watertight manifolds + Bull/Cow cranial sexual dimorphism + `2048x2048` baked imbricated diamond scales, wet mucus roughness & gill operculum + 4 rarity tiers + 7-bone swim rig + `LOD0`–`LOD3` (`40.1k -> 4.5k` tris).*
+
+| 4 Bull/Cow Rarity Variants | Macro Scales & Gill Operculum (`2048x2048` Bake) |
+| :---: | :---: |
+| ![Mahi-Mahi Variants](docs/images/mahimahi_variants.png) | ![Mahi-Mahi Baked Closeup](docs/images/mahimahi_baked_closeup.png) |
+
+---
+
+## Quick Start & 1-Click Installer
+
+### Windows (PowerShell 1-Liner or GUI Setup Wizard)
+```powershell
+# Clone + provision CAD Python 3.12 .venv + install Antigravity/Claude skills + add `vforge` to PATH:
+irm https://raw.githubusercontent.com/velumix/velum-forge/main/install.ps1 | iex
+```
+Or after cloning locally:
+- Double-click **`Setup-VelumForge.cmd`** to open the dark-mode **Windows Setup Wizard GUI**.
+- Double-click **`Launch-VelumForge-Studio.cmd`** (or run `vforge studio`) to launch the **Velum Forge Studio** desktop app.
+
+### macOS / Linux
+```bash
+git clone https://github.com/velumix/velum-forge.git
+cd velum-forge && chmod +x install.sh && ./install.sh
+vforge studio
+```
+
+---
+
+## Velum Forge Studio App & `vforge` CLI
+
+`vforge studio` opens the local **Velum Forge Studio** desktop app:
+- **Showroom & PBR/LOD Inspector:** Browse assets, inspect hero renders, `LOD0`–`LOD3` sheets, and `2048x2048` `Color` / `Normal` / `Roughness` / `Metalness` / `AO` / `ORM` maps, open `.blend` files directly in Blender 5.2, and trigger live QA or Bake jobs with streaming console output.
+- **Environment Doctor:** Live health checks for Blender 5.2+ LTS, Cycles GPU, `build123d` / `trimesh` / `pymeshlab`, Antigravity Plugin, and Claude Code skills.
+- **New Asset Wizard:** Scaffold ready-to-run `boat`, `fish`, `cad`, or `prop` generators in one click.
+
+```powershell
+vforge doctor                                                        # Verify Blender 5.2+, CAD venv & AI skills
+vforge install-ai --workspace C:\path\to\your\game                   # Install Antigravity, Claude & Cursor skills/rules
+vforge new fish yellowfin_tuna                                       # Scaffold a new asset generator
+vforge qa examples\mahi_mahi\build_mahi_mahi.py --forward-axis +Y    # Run 10-view visual & geometric QA gate
+vforge bake examples\mahi_mahi\bake_lod_variants.py                  # Bake 2K Cycles PBR + variants + LOD0-LOD3
+vforge inspect path\to\part.glb                                      # Trimesh watertightness & 20k tri check
+vforge studio                                                        # Launch Velum Forge Studio desktop app
+```
+
+---
+
+## AI Agent Skills & Documentation (Antigravity, Claude Code, Codex, Cursor)
+
+Running `install.ps1` or `vforge install-ai` automatically installs:
+1. **Google Antigravity Plugin** (`~/.gemini/config/plugins/velum-forge`) with always-on `rules/AGENTS.md` and 4 progressive-disclosure skills:
+   - [`velum-3d-workflow`](plugins/velum-forge/skills/velum-3d-workflow/SKILL.md) — Master 6-Gate 3D production runbook.
+   - [`velum-cad-brep`](plugins/velum-forge/skills/velum-cad-brep/SKILL.md) — Precision `build123d` OpenCascade mechanical hardware (`STEP` + `1:1 m` `GLB`).
+   - [`velum-pbr-bake-lods`](plugins/velum-forge/skills/velum-pbr-bake-lods/SKILL.md) — Cycles `OPTIX` `2048x2048` PBR baking, zero-staircase UV stripe splitting & seam-locked `LOD0`–`LOD3`.
+   - [`velum-organic-species`](plugins/velum-forge/skills/velum-organic-species/SKILL.md) — Closed `S^2` organic/creature manifolds, signed-volume outward normals, polar jewel eyes & analytical swim rigs.
+2. **Claude Code CLI Skills** (`~/.claude/skills/velum-*`) + root [`CLAUDE.md`](CLAUDE.md).
+3. **Universal Agent Docs** — [`AGENTS.md`](AGENTS.md), [`docs/AI_AGENT_PLAYBOOK.md`](docs/AI_AGENT_PLAYBOOK.md), [`docs/BLENDER_52_GOTCHAS.md`](docs/BLENDER_52_GOTCHAS.md), and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## License
+MIT &copy; [Velumix](https://github.com/velumix)
