@@ -277,6 +277,14 @@ class TestVelumForgeV12(unittest.TestCase):
         self.assertIn("--factory-startup", cmd_safe)
         self.assertIn("-t", cmd_safe)
         self.assertIn("6", cmd_safe)
+        self.assertTrue(any(part.endswith("safe_bake_runner.py") for part in cmd_safe))
+        self.assertIn("--", cmd_safe)
+        self.assertTrue(cmd_safe[cmd_safe.index("--") + 1].endswith("bake.py"))
+
+        cmd_extra = bake_guard.build_safe_blender_bake_cmd(
+            "blender.exe", "bake.py", threads=4, extra_script_args=["--fast"]
+        )
+        self.assertEqual(cmd_extra[-1], "--fast")
 
         cmd_addons = bake_guard.build_safe_blender_bake_cmd("blender.exe", "bake.py", threads=8, user_addons=True)
         self.assertNotIn("--factory-startup", cmd_addons)
@@ -287,6 +295,15 @@ class TestVelumForgeV12(unittest.TestCase):
         self.assertEqual(env["VELUM_BAKE_COOLDOWN"], "1.5")
         self.assertEqual(env["VELUM_CYCLES_TILE_SIZE"], "256")
         self.assertEqual(env["OMP_NUM_THREADS"], "6")
+        self.assertEqual(env["TBB_NUM_THREADS"], "6")
+        self.assertEqual(env["OPENBLAS_NUM_THREADS"], "6")
+        self.assertEqual(env["MKL_NUM_THREADS"], "6")
+
+        cflags = bake_guard.windows_creationflags()
+        if sys.platform == "win32":
+            self.assertEqual(cflags, getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000))
+        else:
+            self.assertEqual(cflags, 0)
 
         # Verify stale PID lock recovery & clean acquire/release
         with tempfile.TemporaryDirectory() as td:

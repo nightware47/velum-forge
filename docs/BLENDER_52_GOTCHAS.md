@@ -52,9 +52,9 @@ ob.select_set(False)
 
 ---
 
-## 5. Cloud-Synced Folders (`OneDrive` / `Dropbox`) Locking `OpenImageIO` Writes
-When Cycles writes several high-res PNGs rapidly into a OneDrive-synced folder, OneDrive's background indexer briefly locks newly created files, causing Blender's `OpenImageIO` saver to throw `Could not open file`.
-- **Fix:** Always render/save into `tempfile.gettempdir()` first and `shutil.copy2` to the destination inside a 6-attempt `PermissionError` retry loop (`vflib.bake.render_still_safe` & `vflib.bake.save_png_8bit`).
+## 5. Cloud-Synced Folders (`OneDrive` / `Dropbox`) Locking `OpenImageIO` Writes & Power-Loss Corruption
+When Cycles writes several high-res PNGs rapidly into a OneDrive-synced folder, OneDrive's background indexer briefly locks newly created files, causing Blender's `OpenImageIO` saver to throw `Could not open file`. In addition, bare `shutil.copy2` writes can leave zero-filled (`0x00`) corrupted files if power is cut before the OS NTFS cache flushes.
+- **Fix:** Always render/save into `tempfile.gettempdir()` first, stage to a sibling temp file, call `os.fsync()`, and atomically replace via `os.replace()` inside a 6-attempt `PermissionError` retry loop (`vflib.bake.render_still_safe` & `vflib.bake.save_png_8bit`).
 
 ---
 
@@ -71,9 +71,10 @@ On high-core-count workstations (e.g. 16-core/32-thread Ryzen 9 + RTX GPU), two 
        d.use = (d.type == dev_type)
    ```
 2. **Never leave default CPU `OPENIMAGEDENOISE` with `AUTO` threads:** Blender 5.2/5.3 defaults `sc.cycles.denoiser = "OPENIMAGEDENOISE"` with `denoising_use_gpu = False` and `threads_mode = "AUTO"`, firing an all-core AVX2 CPU spike right on top of a hot GPU pass!
-- **Fix (Built Automatically into `vflib.bake.enable_cycles_gpu` & `vforge bake`):**
+- **Fix (Built Automatically into `vflib.bake.enable_cycles_gpu`, `engine/blender/safe_bake_runner.py` & `vforge bake`):**
   - Strictly GPU-only device selection (`d.use = (d.type == dev_type)`).
   - GPU denoising (`sc.cycles.denoiser = "OPTIX"` on OptiX GPUs, or `denoising_use_gpu = True` on CUDA/HIP/ONEAPI/Metal).
-  - Fixed CPU thread cap (`sc.render.threads_mode = "FIXED"`, `-t 8` / `VELUM_BLENDER_THREADS=8`, `OMP_NUM_THREADS=8`).
-  - Safe tile size (`sc.cycles.use_auto_tile = True`, `tile_size = 512`) + `1.0 s` thermal cooldown (`VELUM_BAKE_COOLDOWN=1.0`) between heavy Cycles passes.
-  - Cross-process sequential GPU lock (`~/.velum-forge/gpu_bake.lock`) so concurrent bakes never overlap, plus `--factory-startup` by default in headless batch jobs (opt in with `--user-addons`).
+  - Fixed CPU thread cap (`sc.render.threads_mode = "FIXED"`, `-t 8` / `VELUM_BLENDER_THREADS=8`, plus `OMP`/`TBB`/`OPENBLAS`/`MKL_NUM_THREADS=8`) and Windows `BELOW_NORMAL_PRIORITY_CLASS`.
+  - Safe tile size (`sc.cycles.use_auto_tile = True`, `tile_size = 512`) + deduplicated `1.0 s` GC + thermal cooldown (`VELUM_BAKE_COOLDOWN=1.0`) between heavy Cycles passes.
+  - Runtime operator interception via `engine/blender/safe_bake_runner.py` on `bpy.ops.object.bake` and `bpy.ops.render.render`, guaranteeing even legacy or AI-generated bake scripts cannot re-enable CPU hybrid rendering or skip cooldowns in headless `-b` mode.
+  - Crash-safe (`fsync`'d) cross-process sequential GPU lock (`~/.velum-forge/gpu_bake.lock`) so concurrent bakes never overlap, plus `--factory-startup` by default in headless batch jobs (opt in with `--user-addons`).

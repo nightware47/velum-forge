@@ -27,7 +27,7 @@ param(
     [switch]$OrthoGrid,
     [switch]$SnapshotIteration,
     [int]$Threads = 0,
-    [ValidateSet("auto", "gpu", "optix", "cuda", "cpu")]
+    [ValidateSet("auto", "gpu", "optix", "cuda", "hip", "oneapi", "metal", "cpu")]
     [string]$Device = "auto",
     [switch]$UserAddons,
     [switch]$KeepTiles,
@@ -126,6 +126,8 @@ $env:VELUM_BLENDER_THREADS = "$SafeThreads"
 $env:VELUM_CYCLES_DEVICE = "$Device"
 $env:OMP_NUM_THREADS = "$SafeThreads"
 $env:TBB_NUM_THREADS = "$SafeThreads"
+$env:OPENBLAS_NUM_THREADS = "$SafeThreads"
+$env:MKL_NUM_THREADS = "$SafeThreads"
 
 $BlenderArgs = @("-b")
 if (-not $UserAddons) { $BlenderArgs += "--factory-startup" }

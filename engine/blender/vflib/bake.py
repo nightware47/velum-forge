@@ -10,6 +10,7 @@ Protects workstations against simultaneous GPU + all-core CPU power spikes by:
 """
 from __future__ import annotations
 
+import gc
 import os
 import shutil
 import tempfile
@@ -20,6 +21,8 @@ import bpy
 import numpy as np
 
 from . import core, mats
+
+_LAST_COOLDOWN_TS = 0.0
 
 
 def _safe_thread_count(threads: int | None = None) -> int:
@@ -51,11 +54,19 @@ def _safe_cooldown_sec(seconds: float | None = None) -> float:
         return 1.0
 
 
-def thermal_cooldown(seconds: float | None = None) -> None:
-    """Brief cooldown pause between heavy Cycles GPU passes to avoid back-to-back PSU transient spikes."""
+def thermal_cooldown(seconds: float | None = None, *, min_gap: float = 0.45) -> None:
+    """Brief GC + cooldown pause between heavy Cycles GPU passes to avoid back-to-back PSU transient spikes."""
+    global _LAST_COOLDOWN_TS
     sec = _safe_cooldown_sec(seconds)
-    if sec > 0.0:
-        time.sleep(sec)
+    now = time.monotonic()
+    if sec <= 0.0:
+        gc.collect()
+        return
+    if (now - _LAST_COOLDOWN_TS) < min_gap:
+        return
+    gc.collect()
+    time.sleep(sec)
+    _LAST_COOLDOWN_TS = time.monotonic()
 
 
 def configure_safe_threads(sc: bpy.types.Scene, threads: int | None = None) -> int:
@@ -135,6 +146,13 @@ def enable_cycles_gpu(
 
     req = (device or os.environ.get("VELUM_CYCLES_DEVICE", "auto")).strip().lower()
     if req == "cpu":
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            prefs.get_devices()
+            for d in prefs.devices:
+                d.use = (d.type == "CPU")
+        except Exception:
+            pass
         sc.cycles.device = "CPU"
         configure_safe_denoising(sc, "CPU", use_denoising=use_denoising)
         return "CPU"
@@ -234,37 +252,69 @@ def split_material_border_uv_islands(objs: list[bpy.types.Object], angle_deg: fl
         ob.data.update()
 
 
+def _atomic_copy_fsync(src_path: str, dst_path: str, retries: int = 6) -> None:
+    """Copy `src_path` -> sibling temp file, fsync to disk, then atomically replace `dst_path` with retry.
+
+    Prevents both OneDrive/cloud-sync `OpenImageIO` write locks and zero-filled (`0x00`) corrupted files
+    if system power is unexpectedly interrupted before the OS NTFS write cache flushes.
+    """
+    abs_dst = os.path.abspath(dst_path)
+    dst_dir = os.path.dirname(abs_dst)
+    os.makedirs(dst_dir, exist_ok=True)
+    staged = os.path.join(dst_dir, f".__vf_stage_{os.getpid()}_{os.path.basename(abs_dst)}")
+    try:
+        shutil.copy2(src_path, staged)
+        try:
+            with open(staged, "rb+") as fh:
+                fh.flush()
+                os.fsync(fh.fileno())
+        except OSError:
+            pass
+        for attempt in range(retries):
+            try:
+                os.replace(staged, abs_dst)
+                return
+            except PermissionError:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(0.4)
+    finally:
+        if os.path.exists(staged):
+            try:
+                os.remove(staged)
+            except OSError:
+                pass
+
+
 def render_still_safe(
     sc: bpy.types.Scene,
     dst_path: str,
     retries: int = 6,
     cooldown: float | None = None,
 ) -> str:
-    """Render to local temp directory first, copy with retry (OneDrive-safe), and apply thermal cooldown."""
+    """Render to local temp directory first, fsync + atomically replace destination, and apply thermal cooldown."""
     os.makedirs(os.path.dirname(os.path.abspath(dst_path)), exist_ok=True)
-    configure_safe_threads(sc)
+    if sc.render.engine == "CYCLES":
+        enable_cycles_gpu(sc, use_denoising=bool(sc.cycles.use_denoising))
+    else:
+        configure_safe_threads(sc)
     tmp_p = os.path.join(tempfile.gettempdir(), f"__vf_rnd_{os.getpid()}_{os.path.basename(dst_path)}")
     sc.render.filepath = tmp_p
     bpy.ops.render.render(write_still=True)
-    for attempt in range(retries):
-        try:
-            shutil.copy2(tmp_p, dst_path)
-            break
-        except PermissionError:
-            if attempt == retries - 1:
-                raise
-            time.sleep(0.4)
     try:
-        os.remove(tmp_p)
-    except OSError:
-        pass
+        _atomic_copy_fsync(tmp_p, dst_path, retries=retries)
+    finally:
+        try:
+            os.remove(tmp_p)
+        except OSError:
+            pass
     if sc.render.engine == "CYCLES":
         thermal_cooldown(cooldown)
     return dst_path
 
 
 def save_png_8bit(rgba: np.ndarray, path: str, colorspace: str) -> bpy.types.Image:
-    """Save a `[H, W, 4]` float32 array in `[0, 1]` to an 8-bit PNG safely via temp copy."""
+    """Save a `[H, W, 4]` float32 array in `[0, 1]` to an 8-bit PNG safely via fsync'd atomic replace."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     h, w, _ = rgba.shape
     iname = os.path.basename(path)
@@ -278,18 +328,13 @@ def save_png_8bit(rgba: np.ndarray, path: str, colorspace: str) -> bpy.types.Ima
     img.filepath_raw = tmp_p
     img.file_format = "PNG"
     img.save()
-    for attempt in range(6):
-        try:
-            shutil.copy2(tmp_p, path)
-            break
-        except PermissionError:
-            if attempt == 5:
-                raise
-            time.sleep(0.35)
     try:
-        os.remove(tmp_p)
-    except OSError:
-        pass
+        _atomic_copy_fsync(tmp_p, path, retries=6)
+    finally:
+        try:
+            os.remove(tmp_p)
+        except OSError:
+            pass
     img.filepath = path
     img.reload()
     img.colorspace_settings.name = colorspace

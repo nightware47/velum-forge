@@ -11,7 +11,13 @@ import sys
 from pathlib import Path
 
 from . import CAD_ENGINE_DIR, EXAMPLES_DIR, REPO_ROOT, __version__
-from .bake_guard import build_safe_blender_bake_cmd, build_safe_cycles_env, default_safe_threads, gpu_bake_lock
+from .bake_guard import (
+    build_safe_blender_bake_cmd,
+    build_safe_cycles_env,
+    default_safe_threads,
+    gpu_bake_lock,
+    windows_creationflags,
+)
 from .doctor import find_blender_exe, find_venv_python, install_ai_integrations, run_doctor, set_custom_blender_exe
 from .generator import build_agent_handoff_prompt, build_ai_cli_invocation, generate_parametric_scripts, slugify
 from .references import stage_local_reference_files, sync_references_into_spec
@@ -277,14 +283,14 @@ def main(argv: list[str] | None = None) -> int:
     p_qa.add_argument("--ortho-grid", action="store_true", help="Overlay subtle metric blueprint grid strictly on ORTHO views")
     p_qa.add_argument("--snapshot-iteration", action="store_true", help="Archive renders & qa_report.json into reviews/iter_XX/")
     p_qa.add_argument("--threads", type=int, default=None, help="Cap Blender CPU threads (default: safe <= 8)")
-    p_qa.add_argument("--device", default="auto", choices=["auto", "gpu", "optix", "cuda", "cpu"], help="Cycles compute device")
+    p_qa.add_argument("--device", default="auto", choices=["auto", "gpu", "optix", "cuda", "hip", "oneapi", "metal", "cpu"], help="Cycles compute device")
     p_qa.add_argument("--user-addons", action="store_true", help="Load user Blender add-ons instead of --factory-startup")
     p_qa.add_argument("--fast", action="store_true")
 
     p_bake = sub.add_parser("bake", help="Run hardware-safe headless Blender 5.2+ 2K Cycles PBR bake + variants + LODs script")
     p_bake.add_argument("script", help="Path to bake_lod_variants.py")
     p_bake.add_argument("--threads", type=int, default=None, help="Cap Blender/OIDN CPU threads (default: safe <= 8)")
-    p_bake.add_argument("--device", default="auto", choices=["auto", "gpu", "optix", "cuda", "cpu"], help="Cycles compute device (default: auto GPU-only)")
+    p_bake.add_argument("--device", default="auto", choices=["auto", "gpu", "optix", "cuda", "hip", "oneapi", "metal", "cpu"], help="Cycles compute device (default: auto GPU-only)")
     p_bake.add_argument("--cooldown", type=float, default=1.0, help="Seconds to pause between heavy Cycles passes (default: 1.0)")
     p_bake.add_argument("--tile-size", type=int, default=512, help="Cycles tile size in px to prevent power/VRAM spikes (default: 512)")
     p_bake.add_argument("--no-lock", action="store_true", help="Bypass the sequential cross-process GPU bake lock")
@@ -353,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
                 cmd = build_safe_blender_bake_cmd(blender_exe, created["bake_script"])
                 env = build_safe_cycles_env()
                 with gpu_bake_lock(enabled=True, label=slug):
-                    return subprocess.call(cmd, env=env)
+                    return subprocess.call(cmd, env=env, creationflags=windows_creationflags())
         return 0
 
     if args.cmd == "add-ref":
@@ -509,7 +515,7 @@ def main(argv: list[str] | None = None) -> int:
             tile_size=args.tile_size,
         )
         with gpu_bake_lock(enabled=not args.no_lock, label=Path(args.script).parent.name):
-            return subprocess.call(cmd, env=env)
+            return subprocess.call(cmd, env=env, creationflags=windows_creationflags())
 
     if args.cmd == "inspect":
         py = find_venv_python()

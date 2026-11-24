@@ -18,7 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from . import CAD_ENGINE_DIR, EXAMPLES_DIR, PLUGIN_SRC_DIR, REPO_ROOT, UI_DIR
-from .bake_guard import build_safe_blender_bake_cmd, build_safe_cycles_env, default_safe_threads, gpu_bake_lock
+from .bake_guard import (
+    build_safe_blender_bake_cmd,
+    build_safe_cycles_env,
+    default_safe_threads,
+    gpu_bake_lock,
+    windows_creationflags,
+)
 from .doctor import (
     find_blender_exe,
     find_venv_python,
@@ -303,6 +309,7 @@ def _start_chained_job(
                         cmd,
                         cwd=cwd,
                         env=env_override,
+                        creationflags=windows_creationflags(),
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
