@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Velum Forge Studio — Reference-Driven AI 3D CAD, PBR &amp; LOD Pipeline</title>
+  <title>Velum Forge Studio — Perspective &amp; Ortho 3D CAD, PBR &amp; Iterative Rating Studio</title>
   <style>
     :root {
       --bg-base: #070b14;
-      --bg-panel: rgba(15, 23, 42, 0.86);
-      --bg-card: rgba(22, 33, 58, 0.76);
-      --bg-hover: rgba(34, 50, 84, 0.88);
+      --bg-panel: rgba(15, 23, 42, 0.88);
+      --bg-card: rgba(22, 33, 58, 0.78);
+      --bg-hover: rgba(34, 50, 84, 0.90);
       --border: rgba(148, 163, 184, 0.18);
       --border-glow: rgba(34, 211, 238, 0.5);
       --text: #f1f5f9;
@@ -18,6 +18,7 @@
       --blue: #38bdf8;
       --gold: #fbbf24;
       --green: #22c55e;
+      --red: #ef4444;
       --purple: #818cf8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -30,7 +31,7 @@
       overflow: hidden;
     }
     aside {
-      width: 272px;
+      width: 274px;
       background: var(--bg-panel);
       border-right: 1px solid var(--border);
       backdrop-filter: blur(18px);
@@ -82,7 +83,7 @@
     .header-actions { display: flex; gap: 10px; align-items: center; }
 
     .btn {
-      padding: 8px 15px; border-radius: 9px; border: 1px solid var(--border);
+      padding: 8px 14px; border-radius: 9px; border: 1px solid var(--border);
       background: var(--bg-card); color: var(--text); font-size: 12.5px; font-weight: 600;
       cursor: pointer; transition: all 0.15s ease;
     }
@@ -100,55 +101,98 @@
       background: linear-gradient(135deg, #d97706, #b45309);
       border-color: rgba(251, 191, 36, 0.55); color: #fff;
     }
+    .btn-green {
+      background: linear-gradient(135deg, #16a34a, #15803d);
+      border-color: rgba(74, 222, 128, 0.55); color: #fff;
+    }
 
     .view { display: none; flex: 1; overflow-y: auto; padding: 24px 28px; }
     .view.active { display: block; }
 
     /* Generator Wizard Grid */
     .gen-grid {
-      display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 22px; align-items: start;
+      display: grid; grid-template-columns: 1.04fr 0.96fr; gap: 22px; align-items: start;
     }
     .step-card {
       background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 16px; padding: 22px; margin-bottom: 18px;
+      border-radius: 16px; padding: 20px 22px; margin-bottom: 18px;
     }
     .step-badge {
       display: inline-block; font-size: 11px; font-weight: 700; color: var(--cyan);
       background: rgba(34, 211, 238, 0.12); border: 1px solid rgba(34, 211, 238, 0.35);
       padding: 2px 9px; border-radius: 99px; margin-bottom: 8px;
     }
-    .field { margin-bottom: 14px; }
-    .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
-    .field input, .field select, .field textarea {
-      width: 100%; padding: 10px 12px; border-radius: 9px;
-      border: 1px solid var(--border); background: #0a1120; color: #fff;
-      font-size: 13.5px; font-family: inherit;
+    .step-badge.opt {
+      color: var(--gold);
+      background: rgba(251, 191, 36, 0.12);
+      border-color: rgba(251, 191, 36, 0.35);
     }
-    .field textarea { min-height: 78px; resize: vertical; }
-    .row-2 { display: grid; grid-template-columns: 1fr 150px; gap: 12px; }
+    .field { margin-bottom: 13px; }
+    .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+    .field input, .field select, .field textarea {
+      width: 100%; padding: 9px 12px; border-radius: 9px;
+      border: 1px solid var(--border); background: #0a1120; color: #fff;
+      font-size: 13px; font-family: inherit;
+    }
+    .field textarea { min-height: 74px; resize: vertical; }
+    .row-2 { display: grid; grid-template-columns: 1fr 155px; gap: 12px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+    /* Toggle Switch */
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 12px 14px; border-radius: 12px;
+      background: rgba(10, 17, 32, 0.72); border: 1px solid var(--border);
+    }
+    .toggle-row.active-opt {
+      border-color: rgba(251, 191, 36, 0.55);
+      background: rgba(251, 191, 36, 0.08);
+    }
+    .switch {
+      position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: #1e293b; border: 1px solid var(--border);
+      border-radius: 99px; transition: 0.2s;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px;
+      background: #cbd5e1; border-radius: 50%; transition: 0.2s;
+    }
+    .switch input:checked + .slider { background: #d97706; border-color: var(--gold); }
+    .switch input:checked + .slider:before { transform: translateX(20px); background: #fff; }
+    .switch.cyan input:checked + .slider { background: #0284c7; border-color: var(--cyan); }
 
     /* Reference Dropzone */
     .dropzone {
       border: 2px dashed rgba(56, 189, 248, 0.42);
-      border-radius: 14px; padding: 24px 18px; text-align: center;
+      border-radius: 14px; padding: 22px 16px; text-align: center;
       background: rgba(10, 17, 32, 0.65); cursor: pointer; transition: all 0.16s ease;
     }
     .dropzone:hover, .dropzone.dragover {
       border-color: var(--cyan); background: rgba(14, 165, 233, 0.12);
     }
     .ref-preview-list {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
       gap: 10px; margin-top: 14px;
     }
     .ref-card {
       background: #09101f; border: 1px solid var(--border); border-radius: 10px;
-      padding: 6px; position: relative;
+      padding: 7px; position: relative;
     }
-    .ref-card img { width: 100%; height: 88px; object-fit: contain; border-radius: 6px; background: #050811; }
+    .ref-card img { width: 100%; height: 90px; object-fit: contain; border-radius: 6px; background: #050811; }
     .ref-card select {
-      width: 100%; margin-top: 5px; padding: 4px 6px; font-size: 11.5px;
+      width: 100%; margin-top: 5px; padding: 4px 6px; font-size: 11px;
       background: #111c33; color: #fff; border: 1px solid var(--border); border-radius: 6px;
     }
+    .ref-mode-pill {
+      position: absolute; top: 6px; left: 6px; font-size: 9.5px; font-weight: 700;
+      padding: 2px 6px; border-radius: 6px;
+    }
+    .ref-mode-pill.persp { background: rgba(34, 211, 238, 0.9); color: #08101c; }
+    .ref-mode-pill.ortho { background: rgba(251, 191, 36, 0.9); color: #08101c; }
     .ref-remove {
       position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
       border-radius: 50%; border: none; background: rgba(239, 68, 68, 0.9);
@@ -156,10 +200,10 @@
     }
 
     /* Showroom Split */
-    .studio-split { display: grid; grid-template-columns: 320px 1fr; gap: 22px; align-items: start; }
+    .studio-split { display: grid; grid-template-columns: 315px 1fr; gap: 22px; align-items: start; }
     .asset-list { display: flex; flex-direction: column; gap: 10px; }
     .asset-item {
-      padding: 14px; border-radius: 12px; background: var(--bg-card);
+      padding: 13px 14px; border-radius: 12px; background: var(--bg-card);
       border: 1px solid var(--border); cursor: pointer; transition: all 0.15s ease;
     }
     .asset-item:hover { border-color: rgba(56, 189, 248, 0.4); }
@@ -168,40 +212,81 @@
       box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
       background: rgba(14, 165, 233, 0.13);
     }
-    .asset-item h3 { font-size: 14.5px; margin-bottom: 4px; }
-    .pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .asset-item h3 { font-size: 14px; margin-bottom: 3px; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
     .pill {
-      font-size: 11px; padding: 2px 8px; border-radius: 99px;
-      background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); color: var(--muted);
+      font-size: 10.5px; padding: 2px 8px; border-radius: 99px; font-weight: 600;
+      background: rgba(15, 23, 42, 0.88); border: 1px solid var(--border); color: var(--muted);
     }
-    .pill.ok { color: #4ade80; border-color: rgba(34, 197, 94, 0.38); }
-    .pill.cyan { color: var(--cyan); border-color: rgba(34, 211, 238, 0.35); }
+    .pill.ok { color: #4ade80; border-color: rgba(34, 197, 94, 0.42); }
+    .pill.warn { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); }
+    .pill.err { color: #f87171; border-color: rgba(239, 68, 68, 0.48); }
+    .pill.cyan { color: var(--cyan); border-color: rgba(34, 211, 238, 0.38); }
 
     .detail-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 22px; }
     .detail-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
     .hero-stage {
-      width: 100%; aspect-ratio: 16 / 9.2; background: #0a101f;
+      width: 100%; aspect-ratio: 16 / 9; background: #0a101f;
       border-radius: 12px; border: 1px solid var(--border); overflow: hidden;
       display: grid; place-items: center; margin-bottom: 14px;
     }
     .hero-stage img { width: 100%; height: 100%; object-fit: contain; }
     .thumb-strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 16px; }
     .thumb {
-      width: 118px; height: 74px; border-radius: 8px; overflow: hidden;
+      width: 124px; height: 76px; border-radius: 8px; overflow: hidden;
       border: 2px solid transparent; cursor: pointer; flex-shrink: 0; background: #0b1324; position: relative;
     }
     .thumb.active { border-color: var(--cyan); }
     .thumb img { width: 100%; height: 100%; object-fit: cover; }
     .thumb span {
       position: absolute; bottom: 0; left: 0; right: 0;
-      background: rgba(7, 11, 20, 0.84); font-size: 10px; padding: 2px 5px;
+      background: rgba(7, 11, 20, 0.86); font-size: 10px; padding: 2px 5px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-top: 12px; }
+    /* Review Section */
+    .review-panel {
+      margin-top: 18px; padding: 18px; border-radius: 14px;
+      background: rgba(10, 16, 31, 0.78); border: 1px solid var(--border);
+    }
+    .review-header {
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px;
+    }
+    .trajectory-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+    }
+    .iter-card {
+      background: rgba(17, 25, 45, 0.92); border: 1px solid var(--border);
+      border-radius: 12px; padding: 15px 17px; margin-bottom: 12px;
+    }
+    .iter-card-top {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+    }
+    .rating-badge {
+      font-size: 13px; font-weight: 800; padding: 4px 11px; border-radius: 8px;
+      color: #09101c;
+    }
+    .rating-badge.high { background: var(--green); }
+    .rating-badge.mid { background: var(--gold); }
+    .rating-badge.low { background: var(--red); color: #fff; }
+    .defect-list { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .defect-item {
+      font-size: 12.5px; line-height: 1.45; color: #e2e8f0;
+      padding: 7px 10px; border-radius: 8px; background: rgba(7, 11, 20, 0.7);
+      border-left: 3px solid var(--gold);
+    }
+    .defect-item.critical { border-left-color: var(--red); }
+    .defect-item.minor { border-left-color: var(--cyan); }
+    .review-form {
+      background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(34, 211, 238, 0.35);
+      border-radius: 12px; padding: 15px; margin-bottom: 14px;
+    }
+
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-top: 10px; }
     .metric-box { padding: 12px 14px; border-radius: 10px; background: rgba(10, 16, 31, 0.72); border: 1px solid var(--border); }
     .metric-box label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
-    .metric-box strong { font-size: 15px; color: var(--text); }
+    .metric-box strong { font-size: 14.5px; color: var(--text); }
 
     .check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
     .check-card { padding: 16px 18px; border-radius: 12px; background: var(--bg-card); border: 1px solid var(--border); display: flex; gap: 14px; }
@@ -236,7 +321,7 @@
       <div class="brand-badge">V</div>
       <div>
         <h1>Velum Forge</h1>
-        <span>Reference &bull; CAD &bull; PBR Studio</span>
+        <span>v1.2 &bull; Perspective &bull; Critic Loop</span>
       </div>
     </div>
 
@@ -245,7 +330,7 @@
       <span class="pill ok">START</span>
     </button>
     <button class="nav-btn" id="nav-assets" onclick="switchTab('assets', this)">
-      <span>Showroom &amp; Assets</span>
+      <span>Showroom &amp; Reviews</span>
       <span id="asset-count" class="pill cyan">0</span>
     </button>
     <button class="nav-btn" id="nav-doctor" onclick="switchTab('doctor', this)">
@@ -258,58 +343,101 @@
     </button>
 
     <div class="sidebar-footer">
-      <strong style="color:#fff;">How It Works</strong><br/>
-      1. Drop photos/blueprints &amp; describe your model.<br/>
-      2. Click <strong>Generate Now</strong> (instant build + Ref-vs-Model QA) or run via <strong>Claude / Antigravity</strong>!
+      <strong style="color:#fff;">Smart Reference Modes</strong><br/>
+      &bull; <strong>Photos / Street View:</strong> Matched Perspective Cameras (no ortho grid clutter).<br/>
+      &bull; <strong>Blueprints:</strong> 1:1m Ortho Planes + optional metric grid.<br/>
+      &bull; <strong>Honest Rating Loop:</strong> Optional per-asset toggle!
     </div>
   </aside>
 
   <main>
     <header>
-      <h2 id="view-title">Create &amp; Generate 3D Model from References</h2>
+      <h2 id="view-title">Create &amp; Generate 3D Model from Perspective Photos or Blueprints</h2>
       <div class="header-actions">
         <button class="btn" onclick="toggleConsole()">Pipeline Console</button>
         <button class="btn btn-primary" onclick="syncAiSkills()">Sync AI Skills (Antigravity + Claude)</button>
       </div>
     </header>
 
-    <!-- TAB 1: GENERATE WITH REFERENCES (DEFAULT LANDING VIEW!) -->
+    <!-- TAB 1: GENERATE -->
     <section id="tab-generate" class="view active">
       <div class="gen-grid">
         <div>
           <div class="step-card">
-            <span class="step-badge">STEP 1 &bull; MODEL &amp; SCALE</span>
+            <span class="step-badge">STEP 1 &bull; MODEL &amp; REAL-WORLD SCALE</span>
             <h3 style="margin-bottom:12px;">Describe What You Want to Build</h3>
             <div class="row-2">
               <div class="field">
                 <label>Asset Name</label>
-                <input id="gen-name" type="text" placeholder="e.g. Red Snapper or Patrol Boat 28" />
+                <input id="gen-name" type="text" placeholder="e.g. 800 Ocean Dr News Cafe, Red Snapper, Patrol Boat" />
               </div>
               <div class="field">
-                <label>Real Length (Meters)</label>
-                <input id="gen-length" type="number" step="0.05" min="0.05" value="1.10" />
+                <label>Real Length / Frontage (m)</label>
+                <input id="gen-length" type="number" step="0.1" min="0.05" value="1.10" />
               </div>
             </div>
             <div class="field">
               <label>3D Pipeline Archetype</label>
               <select id="gen-kind" onchange="updateDefaultLength()">
                 <option value="fish">Organic Species / Fish / Creature (Watertight S^2 + Scales + Fins + Eyes)</option>
+                <option value="arch">Architecture / Building / Street Scene (Facade + Recessed Glazing + Street Cams)</option>
                 <option value="boat">Vehicle / Boat / Hard-Surface Assembly (Hull Loft + Console + Hardware)</option>
-                <option value="cad">Precision Mechanical CAD Hardware (`build123d` STEP + Watertight GLB)</option>
+                <option value="cad">Precision Mechanical CAD Hardware (build123d STEP + Watertight GLB)</option>
                 <option value="prop">Game Environment Prop (Beveled Multi-Part PBR + 4-Tier LODs)</option>
               </select>
             </div>
             <div class="field" style="margin-bottom:0;">
-              <label>Detailed Description / AI Prompt (proportions, sub-parts, colors, variants)</label>
-              <textarea id="gen-prompt" placeholder="e.g. Northern Red Snapper, crimson-rose dorsal scales fading to silver belly, spiny dorsal crest, forked tail, golden-red iris, 4 rarity variants..."></textarea>
+              <label>Detailed Description / AI Prompt (proportions, architecture, foliage, signage, materials)</label>
+              <textarea id="gen-prompt" placeholder="e.g. Art Deco 3-story Ocean Drive corner building with News Cafe awning, recessed dark glazing, perforated 3D breeze blocks, palm fronds, and realistic tropical shade trees..."></textarea>
+            </div>
+          </div>
+
+          <!-- OPTIONAL ITERATIVE CRITIC & HONEST RATING LOOP -->
+          <div class="step-card">
+            <span class="step-badge opt">OPTIONAL CORE FEATURE &bull; CRITIC &amp; RATING REVIEWS</span>
+            <div class="toggle-row" id="iter-toggle-row">
+              <div>
+                <strong style="font-size:13.5px;display:block;margin-bottom:2px;">Enable Iterative Visual Critic &amp; Honest Rating Loop</strong>
+                <span style="font-size:11.5px;color:var(--muted);">
+                  Optional: Archive each iteration, rate honestly (0–10) against every reference photo &amp; <code>qa_report.json</code>, list categorized defects, and iterate until target score is reached.
+                </span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="gen-iterate" onchange="toggleIterateOptions()" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div id="iter-options-panel" style="display:none;margin-top:14px;">
+              <div class="row-3">
+                <div class="field">
+                  <label>Target Honest Rating</label>
+                  <input id="gen-target-score" type="number" step="0.5" min="6.0" max="10.0" value="9.0" />
+                </div>
+                <div class="field">
+                  <label>Max Iterations</label>
+                  <input id="gen-max-iters" type="number" min="1" max="8" value="3" />
+                </div>
+                <div class="field">
+                  <label>QA Gate Enforcement</label>
+                  <select id="gen-qa-strict">
+                    <option value="strict">0 Errors &amp; 0 Warnings</option>
+                    <option value="errors_only">0 Errors Only</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="margin-bottom:0;">
+                <label>Optional Critic Focus Notes (what to scrutinize hardest)</label>
+                <input id="gen-focus-notes" type="text" placeholder="e.g. Check tropical foliage realism, upper window depth, signage legibility & zero floating parts" />
+              </div>
             </div>
           </div>
 
           <div class="step-card" style="margin-bottom:0;">
             <span class="step-badge">STEP 3 &bull; GENERATE</span>
-            <h3 style="margin-bottom:8px;">Build 3D Asset + Reference QA</h3>
+            <h3 style="margin-bottom:8px;">Build 3D Asset + Multi-Angle Reference QA</h3>
             <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
-              Extracts colors &amp; proportions from your reference photos, places `1:1m` reference planes in Blender, runs 10-view QA (`ref_comparison.png`), and builds 4 variants + `LOD0`–`LOD3`.
+              Extracts colors &amp; proportions, spawns matched <strong>Perspective Cameras</strong> (for real photos) or <strong>1:1m Ortho Planes</strong> (for blueprints), runs 10-view QA + multi-photo <code>ref_comparison.png</code>, and optionally tracks Honest Rating iterations.
             </p>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button class="btn btn-primary" style="padding:11px 18px;font-size:13.5px;" onclick="runGenerate('parametric')">
@@ -327,17 +455,31 @@
 
         <div>
           <div class="step-card">
-            <span class="step-badge">STEP 2 &bull; REFERENCE IMAGES (OPTIONAL OR BLUEPRINT)</span>
-            <h3 style="margin-bottom:6px;">Attach Photos, Orthos, or Concept Art</h3>
-            <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
-              Drag &amp; drop PNG/JPG/WebP images below, click to browse, or press <strong>Ctrl+V</strong> anywhere on this page to paste from clipboard!
+            <span class="step-badge">STEP 2 &bull; PERSPECTIVE PHOTOS OR ORTHO BLUEPRINTS</span>
+            <h3 style="margin-bottom:6px;">Attach Street Views, Real Photos, or Orthos</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">
+              Drop multiple photos below or press <strong>Ctrl+V</strong>. Real photos default to <strong>Matched Perspective Cameras</strong> (not ortho grids!). Only tag as <em>Ortho Blueprint</em> for flat elevation drawings.
             </p>
             <input type="file" id="ref-file-input" multiple accept="image/*" style="display:none;" onchange="handleFileSelect(this.files)" />
             <div class="dropzone" id="ref-dropzone" onclick="document.getElementById('ref-file-input').click()">
-              <strong style="color:var(--cyan);font-size:14.5px;display:block;margin-bottom:4px;">Drop Reference Images Here or Click to Upload</strong>
-              <span style="font-size:12px;color:var(--muted);">Side profiles, front views, or real photos &bull; Auto-extracts palette &amp; builds side-by-side Ref-vs-Model QA!</span>
+              <strong style="color:var(--cyan);font-size:14.5px;display:block;margin-bottom:4px;">Drop Reference Photos / Blueprints or Click to Upload</strong>
+              <span style="font-size:12px;color:var(--muted);">Multi-angle Street Views, 3/4 shots, close-ups, or ortho elevations &bull; Auto-builds paired Ref-vs-Model sheet!</span>
             </div>
             <div class="ref-preview-list" id="ref-preview-list"></div>
+
+            <!-- OPT-IN ORTHO BLUEPRINT METRIC GRID (STRICTLY FOR ORTHO BLUEPRINTS) -->
+            <div class="toggle-row" id="ortho-grid-row" style="margin-top:14px;opacity:0.65;">
+              <div>
+                <strong style="font-size:12.5px;display:block;">Metric Calibration Grid (Ortho Blueprints Only)</strong>
+                <span id="ortho-grid-hint" style="font-size:11px;color:var(--muted);">
+                  Attach an Ortho Blueprint (Side/Front/Top) to enable — never overlaid on perspective photos.
+                </span>
+              </div>
+              <label class="switch cyan">
+                <input type="checkbox" id="gen-ortho-grid" disabled />
+                <span class="slider"></span>
+              </label>
+            </div>
           </div>
 
           <div class="step-card" id="handoff-box" style="display:none;margin-bottom:0;">
@@ -345,13 +487,13 @@
               <strong style="color:var(--gold);font-size:13px;">AI Agent Handoff Prompt (Paste into Antigravity / Cursor / Claude)</strong>
               <button class="btn" style="padding:4px 10px;font-size:11.5px;" onclick="copyHandoffText()">Copy Prompt</button>
             </div>
-            <pre class="md-box" id="handoff-text" style="max-height:220px;font-size:11.5px;"></pre>
+            <pre class="md-box" id="handoff-text" style="max-height:240px;font-size:11.5px;"></pre>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- TAB 2: SHOWROOM & ASSETS -->
+    <!-- TAB 2: SHOWROOM & ITERATION REVIEWS -->
     <section id="tab-assets" class="view">
       <div class="studio-split">
         <div class="asset-list" id="asset-list"></div>
@@ -365,7 +507,7 @@
     <!-- TAB 3: DOCTOR -->
     <section id="tab-doctor" class="view">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
-        <p style="color:var(--muted);font-size:13.5px;">Auto-scans Registry, Steam libraries, all drives, Blender Launcher, MS Store, AI CLIs &amp; `.venv`.</p>
+        <p style="color:var(--muted);font-size:13.5px;">Auto-scans Registry, Steam libraries, all drives, Blender Launcher, MS Store, AI CLIs &amp; <code>.venv</code>.</p>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-gold" onclick="browseBlender()">Locate blender.exe...</button>
           <button class="btn" onclick="loadDoctor()">Re-Scan System</button>
@@ -394,7 +536,14 @@
     let ASSETS = [];
     let SELECTED_IDX = 0;
     let SKILLS = [];
-    let STAGED_REFS = []; // { filename, view, data_url }
+    let STAGED_REFS = []; // { filename, view, projection, lens_mm, data_url }
+    let REVIEW_FORM_OPEN = false;
+
+    const ORTHO_VIEWS = new Set(['ortho_side', 'ortho_front', 'ortho_back', 'ortho_top']);
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
     function switchTab(id, btn) {
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -402,8 +551,8 @@
       document.getElementById('tab-' + id).classList.add('active');
       if (btn) btn.classList.add('active');
       const titles = {
-        generate: 'Create & Generate 3D Model from References',
-        assets: 'Asset Showroom, Reference Comparison & PBR / LOD Inspector',
+        generate: 'Create & Generate 3D Model from Perspective Photos or Blueprints',
+        assets: 'Asset Showroom, Multi-Ref QA & Optional Iteration Reviews',
         doctor: 'System, Blender & AI Toolchain Doctor',
         skills: 'Bundled AI Agent Skills & Blender 5.2 Guardrails'
       };
@@ -412,8 +561,30 @@
 
     function updateDefaultLength() {
       const k = document.getElementById('gen-kind').value;
-      const defaults = { fish: 1.10, boat: 7.20, cad: 0.22, prop: 0.85 };
+      const defaults = { fish: 1.10, arch: 16.0, boat: 7.20, cad: 0.22, prop: 0.85 };
       document.getElementById('gen-length').value = defaults[k] || 1.0;
+    }
+
+    function toggleIterateOptions() {
+      const on = document.getElementById('gen-iterate').checked;
+      document.getElementById('iter-options-panel').style.display = on ? 'block' : 'none';
+      document.getElementById('iter-toggle-row').classList.toggle('active-opt', on);
+    }
+
+    function updateOrthoGridEligibility() {
+      const hasOrtho = STAGED_REFS.some(r => ORTHO_VIEWS.has(r.view));
+      const chk = document.getElementById('gen-ortho-grid');
+      const row = document.getElementById('ortho-grid-row');
+      const hint = document.getElementById('ortho-grid-hint');
+      chk.disabled = !hasOrtho;
+      if (!hasOrtho) {
+        chk.checked = false;
+        row.style.opacity = '0.62';
+        hint.textContent = 'Attach an Ortho Blueprint (Side/Front/Top) to enable — never overlaid on perspective photos.';
+      } else {
+        row.style.opacity = '1.0';
+        hint.textContent = 'Ortho blueprint detected! Optional metric scale grid will apply ONLY to ortho blueprint views.';
+      }
     }
 
     function toggleConsole(forceOpen) {
@@ -426,7 +597,7 @@
       return '/api/file?path=' + encodeURIComponent(p) + '&t=' + Date.now();
     }
 
-    // Drag & drop + Clipboard Paste for Reference Images!
+    // Drag & drop + Clipboard Paste for Reference Images
     const dz = document.getElementById('ref-dropzone');
     dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
@@ -444,35 +615,84 @@
       if (files.length) handleFileSelect(files);
     });
 
+    function inferDefaultView(fname) {
+      const low = (fname || '').toLowerCase();
+      if (low.includes('street') || low.includes('gsv') || low.includes('corner') || low.includes('facade')) return 'street_view';
+      if (low.includes('aerial') || low.includes('drone')) return 'aerial';
+      if (low.includes('close') || low.includes('detail')) return 'closeup';
+      if (low.includes('blueprint') || low.includes('ortho') || low.includes('elevation')) {
+        if (low.includes('front')) return 'ortho_front';
+        if (low.includes('top') || low.includes('plan')) return 'ortho_top';
+        return 'ortho_side';
+      }
+      // Real photos & pasted captures default cleanly to Perspective Hero/Street View!
+      const kind = document.getElementById('gen-kind')?.value;
+      return kind === 'arch' ? 'street_view' : 'hero';
+    }
+
     function handleFileSelect(fileList) {
       Array.from(fileList).forEach(file => {
         if (!file || !file.type.startsWith('image/')) return;
         const reader = new FileReader();
         reader.onload = ev => {
-          const fname = file.name || ('pasted_ref_' + (STAGED_REFS.length + 1) + '.png');
-          const low = fname.toLowerCase();
-          const vw = low.includes('front') ? 'front' : (low.includes('top') ? 'top' : (low.includes('side') ? 'side' : 'side'));
-          STAGED_REFS.push({ filename: fname, view: vw, data_url: ev.target.result });
+          const fname = file.name || ('pasted_photo_' + (STAGED_REFS.length + 1) + '.png');
+          const vw = inferDefaultView(fname);
+          const proj = ORTHO_VIEWS.has(vw) ? 'ortho_blueprint' : 'perspective';
+          const lens = proj === 'ortho_blueprint' ? '' : (vw === 'street_view' ? '28' : '35');
+          STAGED_REFS.push({ filename: fname, view: vw, projection: proj, lens_mm: lens, data_url: ev.target.result });
           renderStagedRefs();
         };
         reader.readAsDataURL(file);
       });
     }
 
+    function setStagedRefView(i, vw) {
+      STAGED_REFS[i].view = vw;
+      STAGED_REFS[i].projection = ORTHO_VIEWS.has(vw) ? 'ortho_blueprint' : 'perspective';
+      if (STAGED_REFS[i].projection === 'ortho_blueprint') STAGED_REFS[i].lens_mm = '';
+      else if (!STAGED_REFS[i].lens_mm) STAGED_REFS[i].lens_mm = vw === 'street_view' ? '28' : '35';
+      renderStagedRefs();
+    }
+
     function renderStagedRefs() {
       const box = document.getElementById('ref-preview-list');
-      box.innerHTML = STAGED_REFS.map((r, i) => `
-        <div class="ref-card">
-          <button class="ref-remove" onclick="removeRef(${i})">&times;</button>
-          <img src="${r.data_url}" alt="${r.filename}" />
-          <select onchange="STAGED_REFS[${i}].view = this.value">
-            <option value="side" ${r.view === 'side' ? 'selected' : ''}>Side / Profile</option>
-            <option value="hero" ${r.view === 'hero' ? 'selected' : ''}>Hero / 3/4 Photo</option>
-            <option value="front" ${r.view === 'front' ? 'selected' : ''}>Front Ortho</option>
-            <option value="top" ${r.view === 'top' ? 'selected' : ''}>Top Ortho</option>
-          </select>
-        </div>
-      `).join('');
+      box.innerHTML = STAGED_REFS.map((r, i) => {
+        const isOrtho = ORTHO_VIEWS.has(r.view);
+        return `
+          <div class="ref-card">
+            <span class="ref-mode-pill ${isOrtho ? 'ortho' : 'persp'}">${isOrtho ? 'ORTHO' : 'PERSP CAM'}</span>
+            <button class="ref-remove" onclick="removeRef(${i})">&times;</button>
+            <img src="${r.data_url}" alt="${escHtml(r.filename)}" />
+            <select onchange="setStagedRefView(${i}, this.value)">
+              <optgroup label="Perspective Photos (Matched Camera)">
+                <option value="hero" ${r.view === 'hero' ? 'selected' : ''}>Hero 3/4 Photo</option>
+                <option value="street_view" ${r.view === 'street_view' ? 'selected' : ''}>Street View / Eye-Level</option>
+                <option value="quarter_left" ${r.view === 'quarter_left' ? 'selected' : ''}>Quarter Left Photo</option>
+                <option value="quarter_right" ${r.view === 'quarter_right' ? 'selected' : ''}>Quarter Right Photo</option>
+                <option value="closeup" ${r.view === 'closeup' ? 'selected' : ''}>Close-Up / Detail</option>
+                <option value="aerial" ${r.view === 'aerial' ? 'selected' : ''}>Aerial / Drone Photo</option>
+                <option value="interior" ${r.view === 'interior' ? 'selected' : ''}>Interior Photo</option>
+              </optgroup>
+              <optgroup label="Orthographic Blueprints (Flat Ortho)">
+                <option value="ortho_side" ${r.view === 'ortho_side' ? 'selected' : ''}>Side Ortho Blueprint</option>
+                <option value="ortho_front" ${r.view === 'ortho_front' ? 'selected' : ''}>Front Ortho Blueprint</option>
+                <option value="ortho_back" ${r.view === 'ortho_back' ? 'selected' : ''}>Back Ortho Blueprint</option>
+                <option value="ortho_top" ${r.view === 'ortho_top' ? 'selected' : ''}>Top Plan Blueprint</option>
+              </optgroup>
+            </select>
+            ${!isOrtho ? `
+              <select onchange="STAGED_REFS[${i}].lens_mm = this.value">
+                <option value="24" ${r.lens_mm === '24' ? 'selected' : ''}>Lens: 24mm Wide</option>
+                <option value="28" ${r.lens_mm === '28' ? 'selected' : ''}>Lens: 28mm Street View</option>
+                <option value="35" ${r.lens_mm === '35' ? 'selected' : ''}>Lens: 35mm Arch / 3/4</option>
+                <option value="50" ${r.lens_mm === '50' ? 'selected' : ''}>Lens: 50mm Standard</option>
+                <option value="85" ${r.lens_mm === '85' ? 'selected' : ''}>Lens: 85mm Telephoto</option>
+              </select>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+      updateOrthoGridEligibility();
     }
 
     function removeRef(i) {
@@ -483,17 +703,30 @@
     async function runGenerate(engine) {
       const name = document.getElementById('gen-name').value.trim();
       if (!name) {
-        alert('Enter an Asset Name first (e.g. Red Snapper or Patrol Boat 28)!');
+        alert('Enter an Asset Name first (e.g. 800 Ocean Dr News Cafe or Red Snapper)!');
         document.getElementById('gen-name').focus();
         return;
       }
       const kind = document.getElementById('gen-kind').value;
       const length_m = parseFloat(document.getElementById('gen-length').value) || 1.1;
       const prompt = document.getElementById('gen-prompt').value.trim() || name;
+      const ortho_blueprint_grid = document.getElementById('gen-ortho-grid').checked;
+      const iterEnabled = document.getElementById('gen-iterate').checked;
+      const review_loop = {
+        enabled: iterEnabled,
+        target_score: parseFloat(document.getElementById('gen-target-score').value) || 9.0,
+        max_iterations: parseInt(document.getElementById('gen-max-iters').value, 10) || 3,
+        require_zero_qa_errors: true,
+        require_zero_qa_warnings: document.getElementById('gen-qa-strict').value === 'strict',
+        focus_notes: document.getElementById('gen-focus-notes').value.trim()
+      };
 
       const res = await fetch('/api/generate', {
         method: 'POST',
-        body: JSON.stringify({ name, title: name, kind, length_m, prompt, engine, references: STAGED_REFS })
+        body: JSON.stringify({
+          name, title: name, kind, length_m, prompt, engine,
+          ortho_blueprint_grid, review_loop, references: STAGED_REFS
+        })
       });
       const data = await res.json();
 
@@ -509,8 +742,8 @@
 
       if (engine === 'handoff') {
         await navigator.clipboard.writeText(data.handoff_prompt);
-        await loadAssets();
-        alert('Staged reference images & asset_spec.json and copied the AI Handoff Prompt to your clipboard!\nPaste it directly into Antigravity, Cursor, or Claude Code.');
+        await loadAssets(data.created?.slug);
+        alert('Staged references & asset_spec.json and copied the AI Handoff Prompt to your clipboard!');
         return;
       }
 
@@ -543,8 +776,8 @@
         <div class="check-card">
           <div class="dot ${c.installed ? 'ok' : 'warn'}"></div>
           <div>
-            <strong style="font-size:14px;display:block;margin-bottom:4px;">${c.label}</strong>
-            <span style="font-size:12px;color:var(--muted);">${c.exe || 'Optional — use Antigravity/Cursor handoff or Instant Generator'}</span>
+            <strong style="font-size:14px;display:block;margin-bottom:4px;">${escHtml(c.label)}</strong>
+            <span style="font-size:12px;color:var(--muted);">${escHtml(c.exe || 'Optional — use Antigravity/Cursor handoff or Instant Generator')}</span>
           </div>
         </div>
       `).join('');
@@ -554,8 +787,8 @@
         <div class="check-card">
           <div class="dot ${c.ok ? 'ok' : 'warn'}"></div>
           <div>
-            <strong style="font-size:14px;display:block;margin-bottom:4px;">${c.label}</strong>
-            <span style="font-size:12px;color:var(--muted);word-break:break-all;">${c.detail}</span>
+            <strong style="font-size:14px;display:block;margin-bottom:4px;">${escHtml(c.label)}</strong>
+            <span style="font-size:12px;color:var(--muted);word-break:break-all;">${escHtml(c.detail)}</span>
           </div>
         </div>
       `).join('') + cliCards;
@@ -579,18 +812,146 @@
       el.innerHTML = ASSETS.map((a, i) => {
         const lod0 = a.report?.lods?.LOD0?.tris;
         const refCount = (a.references || []).length;
+        const qa = a.qa_summary || {};
+        const rh = a.review_history || {};
+        const latestR = rh.latest_rating;
+        const revOn = a.review_loop?.enabled;
         return `
           <div class="asset-item ${i === SELECTED_IDX ? 'selected' : ''}" onclick="selectAsset(${i})">
-            <h3>${a.title}</h3>
-            <span style="font-size:11.5px;color:var(--muted);">${a.source}</span>
+            <h3>${escHtml(a.title)}</h3>
+            <span style="font-size:11.5px;color:var(--muted);">${escHtml(a.source)} &bull; ${escHtml(a.kind)}</span>
             <div class="pill-row">
+              ${qa.available ? `<span class="pill ${qa.pass ? 'ok' : 'err'}">QA ${qa.pass ? 'PASS' : 'FAIL'} (${qa.errors_count}E/${qa.warnings_count}W)</span>` : ''}
+              ${latestR != null ? `<span class="pill ${latestR >= (a.review_loop?.target_score || 9) ? 'ok' : 'warn'}">${Number(latestR).toFixed(1)} / 10</span>` : (revOn ? `<span class="pill warn">Critic ON</span>` : '')}
               ${lod0 ? `<span class="pill cyan">${lod0.toLocaleString()} tris</span>` : ''}
-              ${refCount ? `<span class="pill ok">${refCount} Ref Photo(s)</span>` : ''}
-              ${a.report?.lods?.LOD3 ? `<span class="pill">LOD0–LOD3</span>` : ''}
+              ${refCount ? `<span class="pill">${refCount} Ref(s)</span>` : ''}
             </div>
           </div>
         `;
       }).join('');
+    }
+
+    function ratingClass(score, target) {
+      if (score >= target) return 'high';
+      if (score >= 7.0) return 'mid';
+      return 'low';
+    }
+
+    function renderReviewPanel(a, idx) {
+      const cfg = a.review_loop || { enabled: false, target_score: 9.0, max_iterations: 3, require_zero_qa_warnings: true, focus_notes: '' };
+      const hist = a.review_history || { iterations: [], status: 'NOT_STARTED' };
+      const iters = hist.iterations || [];
+      const target = Number(cfg.target_score || 9.0);
+
+      const trajHtml = iters.length ? `
+        <div class="trajectory-bar">
+          ${iters.map(it => `
+            <span class="pill ${it.honest_rating >= target ? 'ok' : (it.honest_rating >= 7 ? 'warn' : 'err')}">
+              Iter ${it.iteration}: ${Number(it.honest_rating).toFixed(1)}/10
+            </span>
+          `).join('<span style="color:var(--muted);font-size:12px;">&rarr;</span>')}
+          <span class="pill cyan">Target: ${target.toFixed(1)}/10 (${escHtml(hist.status)})</span>
+        </div>
+      ` : `<p style="font-size:12px;color:var(--muted);margin-bottom:12px;">No iteration reviews logged yet. Run QA, inspect renders against references, and click <strong>+ Log Honest Review</strong> (or let your AI agent run <code>vforge review log</code>).</p>`;
+
+      const cardsHtml = [...iters].reverse().map(it => {
+        const deltaTxt = typeof it.delta_from_previous === 'number'
+          ? ` (${it.delta_from_previous >= 0 ? '+' : ''}${it.delta_from_previous.toFixed(1)} vs Iter ${it.iteration - 1})`
+          : '';
+        const qa = it.qa_snapshot || {};
+        const defects = it.defects || [];
+        const strengths = it.strengths || [];
+        return `
+          <div class="iter-card">
+            <div class="iter-card-top">
+              <div>
+                <strong style="font-size:14.5px;">Iteration ${it.iteration} Review</strong>
+                <span style="font-size:12px;color:var(--muted);margin-left:8px;">${escHtml(deltaTxt)}</span>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                ${qa.available ? `<span class="pill ${qa.pass ? 'ok' : 'err'}">QA ${qa.pass ? 'PASS' : 'FAIL'} (${qa.errors_count}E/${qa.warnings_count}W)</span>` : ''}
+                <span class="rating-badge ${ratingClass(it.honest_rating, target)}">Honest Rating: ${Number(it.honest_rating).toFixed(1)} / 10</span>
+              </div>
+            </div>
+            ${it.summary ? `<p style="font-size:12.5px;color:#cbd5e1;margin-bottom:8px;line-height:1.5;">${escHtml(it.summary)}</p>` : ''}
+            ${it.cap_reason ? `<p style="font-size:11.5px;color:var(--gold);margin-bottom:8px;">&#9888; ${escHtml(it.cap_reason)}</p>` : ''}
+            ${strengths.length ? `<div style="font-size:12px;color:#86efac;margin-bottom:6px;"><strong>Strengths:</strong> ${strengths.map(escHtml).join(' &bull; ')}</div>` : ''}
+            ${defects.length ? `
+              <ul class="defect-list">
+                ${defects.map(d => `
+                  <li class="defect-item ${escHtml(d.severity || 'major')}">
+                    <strong>[${escHtml((d.severity || 'major').toUpperCase())}] ${escHtml(d.category || 'General')}:</strong>
+                    ${escHtml(d.description || '')}
+                    ${d.fix_action ? `<br/><span style="color:var(--cyan);">Fix: ${escHtml(d.fix_action)}</span>` : ''}
+                  </li>
+                `).join('')}
+              </ul>
+            ` : `<div style="font-size:12px;color:#4ade80;">No defects flagged on this iteration.</div>`}
+          </div>
+        `;
+      }).join('');
+
+      const formHtml = REVIEW_FORM_OPEN ? `
+        <div class="review-form">
+          <h4 style="font-size:13.5px;color:var(--cyan);margin-bottom:10px;">Log Honest Iteration Review</h4>
+          <div class="row-3">
+            <div class="field">
+              <label>Honest Rating (0.0 – 10.0)</label>
+              <input id="rv-score" type="number" step="0.1" min="0" max="10" value="7.5" />
+            </div>
+            <div class="field">
+              <label>Silhouette / Ref Match</label>
+              <input id="rv-ref" type="number" step="0.5" min="0" max="10" placeholder="Optional" />
+            </div>
+            <div class="field">
+              <label>Detail Craft / Materials</label>
+              <input id="rv-craft" type="number" step="0.5" min="0" max="10" placeholder="Optional" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Honest Summary</label>
+            <textarea id="rv-summary" placeholder="e.g. Iteration 2 fixed upper window glazing and awning readability, but shade tree branches still look too straight..."></textarea>
+          </div>
+          <div class="field">
+            <label>Strengths (one per line)</label>
+            <textarea id="rv-strengths" style="min-height:54px;" placeholder="100% outward blue face orientation&#10;Crisp awning script above umbrellas"></textarea>
+          </div>
+          <div class="field">
+            <label>Defects (one per line as: Category | critical/major/minor | Description | Exact Fix)</label>
+            <textarea id="rv-defects" style="min-height:72px;" placeholder="Botanicals | major | Shade tree branches radiate like straight cylinders | Replace with gnarled branching boughs + full broad-leaf canopy&#10;Geometric QA | critical | Floating breeze blocks due to 6mm gap | Bridge masonry mortar joints cleanly"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-green" onclick="submitIterationReview(${idx})">Save Review &amp; Build Progression Sheet</button>
+            <button class="btn" onclick="REVIEW_FORM_OPEN=false; selectAsset(${idx})">Cancel</button>
+          </div>
+        </div>
+      ` : '';
+
+      return `
+        <div class="review-panel">
+          <div class="review-header">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <strong style="font-size:14.5px;color:var(--gold);">Iterative Critic &amp; Honest Rating Reviews</strong>
+              <span class="pill ${cfg.enabled ? 'warn' : ''}">${cfg.enabled ? 'ENABLED (OPTIONAL)' : 'OFF (SINGLE-PASS)'}</span>
+              <label class="switch" title="Toggle Optional Iterative Review Loop for this asset">
+                <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="updateAssetReviewConfig(${idx}, { enabled: this.checked })" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <label style="font-size:11.5px;color:var(--muted);">Target:</label>
+              <input type="number" step="0.5" min="6" max="10" value="${target.toFixed(1)}" style="width:62px;padding:4px 7px;border-radius:7px;border:1px solid var(--border);background:#09101f;color:#fff;font-size:12px;"
+                     onchange="updateAssetReviewConfig(${idx}, { target_score: parseFloat(this.value) || 9.0 })" />
+              <button class="btn" onclick="snapshotAssetIteration(${idx})">Snapshot Renders</button>
+              <button class="btn btn-gold" onclick="REVIEW_FORM_OPEN=!REVIEW_FORM_OPEN; selectAsset(${idx})">+ Log Honest Review</button>
+              <button class="btn btn-ai" onclick="copyNextIterPrompt(${idx})">Copy Next-Iter Fix Prompt</button>
+            </div>
+          </div>
+          ${trajHtml}
+          ${formHtml}
+          ${cardsHtml}
+        </div>
+      `;
     }
 
     function selectAsset(idx) {
@@ -609,45 +970,118 @@
       const lods = a.report?.lods || {};
       const lodHtml = Object.entries(lods).map(([k, v]) => `
         <div class="metric-box">
-          <label>${k} (screen ${v.screen_size ?? 1.0})</label>
+          <label>${escHtml(k)} (screen ${v.screen_size ?? 1.0})</label>
           <strong>${(v.tris || 0).toLocaleString()} tris &bull; ${v.parts || '-'} parts</strong>
         </div>
       `).join('');
 
+      const escPath = p => (p || '').replace(/\\/g, '\\\\');
+      const snapFlag = a.review_loop?.enabled ? 'true' : 'false';
+      const gridFlag = a.ortho_blueprint_grid ? 'true' : 'false';
+
       box.innerHTML = `
         <div class="detail-top">
           <div>
-            <h2 style="font-size:20px;margin-bottom:4px;">${a.title}</h2>
-            <span style="font-size:12px;color:var(--muted);word-break:break-all;">${a.dir}</span>
+            <h2 style="font-size:20px;margin-bottom:4px;">${escHtml(a.title)}</h2>
+            <span style="font-size:12px;color:var(--muted);word-break:break-all;">${escHtml(a.dir)}</span>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" onclick="document.getElementById('add-existing-ref-input').click()">+ Add Reference Photo</button>
-            <button class="btn" onclick="copyAssetBrief(${idx})">Copy AI Refinement Prompt</button>
-            ${a.blend_file ? `<button class="btn btn-gold" onclick="openBlender('${a.blend_file.replace(/\\/g, '\\\\')}')">Open in Blender</button>` : ''}
-            ${a.build_script ? `<button class="btn" onclick="runQa('${a.build_script.replace(/\\/g, '\\\\')}')">Run QA + Ref Compare</button>` : ''}
-            ${a.bake_script ? `<button class="btn btn-primary" onclick="runBake('${a.bake_script.replace(/\\/g, '\\\\')}')">Bake 2K + Variants + LODs</button>` : ''}
+            <button class="btn" onclick="copyAssetBrief(${idx})">Copy AI Handoff Prompt</button>
+            ${a.blend_file ? `<button class="btn btn-gold" onclick="openBlender('${escPath(a.blend_file)}')">Open in Blender</button>` : ''}
+            ${a.build_script ? `<button class="btn" onclick="runQa('${escPath(a.build_script)}', ${gridFlag}, ${snapFlag})">Run QA + Ref Compare</button>` : ''}
+            ${a.bake_script ? `<button class="btn btn-primary" onclick="runBake('${escPath(a.bake_script)}')">Bake 2K + Variants + LODs</button>` : ''}
           </div>
         </div>
         ${initialImg ? `
           <div class="hero-stage"><img id="main-stage-img" src="${fileUrl(initialImg)}" alt="Render" /></div>
           <div class="thumb-strip">
             ${allThumbs.map((t, ti) => `
-              <div class="thumb ${ti === 0 ? 'active' : ''}" onclick="setStageImg('${t.path.replace(/\\/g, '\\\\')}', this)">
+              <div class="thumb ${ti === 0 ? 'active' : ''}" onclick="setStageImg('${escPath(t.path)}', this)">
                 <img src="${fileUrl(t.path)}" />
-                <span>${t.label}</span>
+                <span>${escHtml(t.label)}</span>
               </div>
             `).join('')}
           </div>
         ` : `<div class="hero-stage"><span style="color:var(--muted);">Click "Run QA + Ref Compare" or "Bake 2K" above to render</span></div>`}
         ${lodHtml ? `<h4 style="font-size:13px;color:var(--cyan);margin-bottom:4px;">Verified 4-Tier Game LOD Chain</h4><div class="metrics-grid">${lodHtml}</div>` : ''}
+        ${renderReviewPanel(a, idx)}
       `;
+    }
+
+    async function updateAssetReviewConfig(idx, updates) {
+      const a = ASSETS[idx];
+      if (!a) return;
+      const r = await fetch('/api/review/config', {
+        method: 'POST',
+        body: JSON.stringify({ asset_dir: a.dir, ...updates })
+      });
+      const d = await r.json();
+      if (d.ok) await loadAssets(a.name);
+    }
+
+    async function snapshotAssetIteration(idx) {
+      const a = ASSETS[idx];
+      if (!a) return;
+      const r = await fetch('/api/review/snapshot', {
+        method: 'POST',
+        body: JSON.stringify({ asset_dir: a.dir })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        alert(`Archived ${d.snapshot.images.length} render(s) into Iteration ${d.snapshot.iteration} snapshot:\n${d.snapshot.snapshot_dir}`);
+        await loadAssets(a.name);
+      }
+    }
+
+    async function submitIterationReview(idx) {
+      const a = ASSETS[idx];
+      if (!a) return;
+      const scoreVal = parseFloat(document.getElementById('rv-score').value);
+      const refVal = document.getElementById('rv-ref').value;
+      const craftVal = document.getElementById('rv-craft').value;
+      const rubric_scores = {};
+      if (refVal !== '') rubric_scores.reference_fidelity = parseFloat(refVal);
+      if (craftVal !== '') rubric_scores.detail_craft = parseFloat(craftVal);
+
+      const summary = document.getElementById('rv-summary').value.trim();
+      const strengths = document.getElementById('rv-strengths').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const defects = document.getElementById('rv-defects').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+      const r = await fetch('/api/review/log', {
+        method: 'POST',
+        body: JSON.stringify({
+          asset_dir: a.dir,
+          honest_rating: isNaN(scoreVal) ? null : scoreVal,
+          rubric_scores: Object.keys(rubric_scores).length ? rubric_scores : null,
+          summary, strengths, defects, snapshot_renders: true
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        REVIEW_FORM_OPEN = false;
+        await loadAssets(a.name);
+      } else {
+        alert(d.error || 'Failed to save review');
+      }
     }
 
     async function copyAssetBrief(idx) {
       const a = ASSETS[idx];
       if (a && a.handoff_prompt) {
         await navigator.clipboard.writeText(a.handoff_prompt);
-        alert('Copied AI Refinement Prompt (with reference image paths & spec) to clipboard!');
+        alert('Copied AI Handoff Prompt (with matched reference cameras & review settings) to clipboard!');
+      }
+    }
+
+    async function copyNextIterPrompt(idx) {
+      const a = ASSETS[idx];
+      if (!a) return;
+      const r = await fetch('/api/review/prompt?asset_dir=' + encodeURIComponent(a.dir));
+      const d = await r.json();
+      if (d.ok && d.prompt) {
+        await navigator.clipboard.writeText(d.prompt);
+        alert('Copied Next-Iteration Critique & Defect-Fix Prompt to clipboard!\nPaste it into Antigravity, Cursor, or Claude Code.');
       }
     }
 
@@ -659,12 +1093,14 @@
       Array.from(fileList).forEach(f => {
         const rd = new FileReader();
         rd.onload = async ev => {
-          uploads.push({ filename: f.name, view: 'side', data_url: ev.target.result });
+          const vw = inferDefaultView(f.name);
+          const proj = ORTHO_VIEWS.has(vw) ? 'ortho_blueprint' : 'perspective';
+          uploads.push({ filename: f.name, view: vw, projection: proj, data_url: ev.target.result });
           rem -= 1;
           if (rem === 0) {
             await fetch('/api/upload-reference', { method: 'POST', body: JSON.stringify({ asset_dir: a.dir, references: uploads }) });
             await loadAssets(a.name);
-            if (a.build_script) runQa(a.build_script);
+            if (a.build_script) runQa(a.build_script, !!a.ortho_blueprint_grid, !!a.review_loop?.enabled);
           }
         };
         rd.readAsDataURL(f);
@@ -683,9 +1119,12 @@
       if (!d.ok) alert(d.error || 'Could not launch Blender');
     }
 
-    async function runQa(path) {
+    async function runQa(path, ortho_grid = false, snapshot_iteration = false) {
       toggleConsole(true);
-      const r = await fetch('/api/run-qa', { method: 'POST', body: JSON.stringify({ path, profile: 'roblox', forward_axis: '+Y' }) });
+      const r = await fetch('/api/run-qa', {
+        method: 'POST',
+        body: JSON.stringify({ path, profile: 'roblox', forward_axis: '+Y', ortho_grid, snapshot_iteration })
+      });
       const d = await r.json();
       if (d.job_id) watchJob(d.job_id);
     }
@@ -720,7 +1159,7 @@
       const d = await r.json();
       if (d.ok) {
         await loadDoctor();
-        alert('Synced Velum Forge plugin & skills to Antigravity and Claude Code!');
+        alert('Synced Velum Forge v1.2 plugin & skills to Antigravity and Claude Code!');
       }
     }
 
@@ -739,7 +1178,7 @@
       const d = await r.json();
       SKILLS = d.skills || [];
       const bar = document.getElementById('skill-tabs');
-      bar.innerHTML = SKILLS.map((s, i) => `<button class="btn" onclick="showSkill(${i})">${s.name}</button>`).join('');
+      bar.innerHTML = SKILLS.map((s, i) => `<button class="btn" onclick="showSkill(${i})">${escHtml(s.name)}</button>`).join('');
       if (SKILLS.length) showSkill(0);
     }
 

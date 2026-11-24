@@ -142,8 +142,10 @@ def render_views(objs, out_dir, views=("hero",), res=(1600, 900), engine="EEVEE"
     sc.camera = cam
     used = set_engine(sc, engine)
     if used == "CYCLES":
+        from . import bake
+
+        bake.enable_cycles_gpu(sc, use_denoising=True)
         sc.cycles.samples = samples
-        sc.cycles.use_denoising = True
     else:
         try:
             sc.eevee.taa_render_samples = samples

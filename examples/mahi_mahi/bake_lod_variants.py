@@ -521,22 +521,51 @@ def pack_shared_fish_atlas(part_objs: dict[str, bpy.types.Object]) -> None:
 # ---------------------------------------------------------------------------
 # 4. True `2048x2048` Cycles `OPTIX` GPU PBR Texture Baker
 # ---------------------------------------------------------------------------
-def _enable_cycles_gpu(sc: bpy.types.Scene) -> None:
+def _enable_cycles_gpu(sc: bpy.types.Scene) -> str:
+    try:
+        from vflib import bake as _vf_bake
+
+        return _vf_bake.enable_cycles_gpu(sc, use_denoising=True)
+    except Exception:
+        pass
     sc.render.engine = "CYCLES"
+    try:
+        sc.render.threads_mode = "FIXED"
+        sc.render.threads = min(8, max(2, (os.cpu_count() or 8) // 2))
+        sc.cycles.use_auto_tile = True
+        sc.cycles.tile_size = 512
+    except Exception:
+        pass
+    backend = "CPU"
     try:
         prefs = bpy.context.preferences.addons["cycles"].preferences
         for dev_type in ("OPTIX", "CUDA"):
             try:
                 prefs.compute_device_type = dev_type
                 prefs.get_devices()
-                for d in prefs.devices:
-                    d.use = True
-                sc.cycles.device = "GPU"
-                break
+                devs = [d for d in prefs.devices if d.type == dev_type]
+                if devs:
+                    for d in prefs.devices:
+                        d.use = (d.type == dev_type)
+                    sc.cycles.device = "GPU"
+                    backend = dev_type
+                    break
             except Exception:
                 continue
     except Exception:
         pass
+    if backend == "OPTIX":
+        try:
+            sc.cycles.denoiser = "OPTIX"
+        except Exception:
+            pass
+    elif backend != "CPU":
+        try:
+            sc.cycles.denoiser = "OPENIMAGEDENOISE"
+            sc.cycles.denoising_use_gpu = True
+        except Exception:
+            pass
+    return backend
 
 
 def _make_bake_img(name: str, res: int, colorspace: str) -> bpy.types.Image:
@@ -1111,6 +1140,12 @@ def export_fish_variant_bundle(
 
 
 def _render_still_safe(sc: bpy.types.Scene, dst_path: str) -> str:
+    try:
+        from vflib import bake as _vf_bake
+
+        return _vf_bake.render_still_safe(sc, dst_path)
+    except Exception:
+        pass
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     tmp_p = os.path.join(tempfile.gettempdir(), f"__sc_mm_{os.path.basename(dst_path)}")
     sc.render.filepath = tmp_p
@@ -1127,6 +1162,7 @@ def _render_still_safe(sc: bpy.types.Scene, dst_path: str) -> str:
         os.remove(tmp_p)
     except OSError:
         pass
+    time.sleep(float(os.environ.get("VELUM_BAKE_COOLDOWN", "1.0") or "1.0"))
     return dst_path
 
 

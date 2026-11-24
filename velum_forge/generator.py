@@ -2,10 +2,12 @@
 
 Supports three seamless generation modes:
   1. `parametric` — Instant offline reference-calibrated multi-part generator (uses reference aspect ratio,
-     dominant hex palette, and real-world meters) + automatic 10-view QA & `ref_comparison.png`!
+     dominant hex palette, real-world meters, and matched perspective cameras or ortho blueprints)
+     + automatic 10-view QA & multi-angle `ref_comparison.png`!
   2. `claude` / `codex` / `gemini` — Drives an installed local multimodal AI CLI (`claude`, `codex`, `gemini`)
      to inspect `<asset_dir>/references/*`, write bespoke `build_<slug>.py` + `bake_lod_variants.py`,
-     pass the 10-view QA gate (`0` errors, `0` warnings), and bake 2K Cycles PBR textures + LOD0-LOD3.
+     pass the 10-view QA gate (`0` errors, `0` warnings), optionally execute the Honest Rating
+     Iteration Review Loop, and bake 2K Cycles PBR textures + LOD0-LOD3.
   3. `handoff` — Stages `asset_spec.json` + `references/` and outputs a 1-click copyable prompt for
      interactive IDE agents (Google Antigravity, Cursor, Windsurf, Claude Code).
 """
@@ -21,6 +23,7 @@ from typing import Any
 
 from . import BLENDER_ENGINE_DIR, CAD_ENGINE_DIR, EXAMPLES_DIR, REPO_ROOT
 from .references import write_asset_spec
+from .review import get_review_config, normalize_review_config
 
 
 def slugify(name: str) -> str:
@@ -71,31 +74,88 @@ def build_agent_handoff_prompt(asset_dir: Path) -> str:
     length_m = spec.get("target_length_m", 1.2)
     refs = spec.get("references", [])
     pal = spec.get("extracted_palette", [])
+    ortho_grid = bool(spec.get("ortho_blueprint_grid", False))
+    review_cfg = normalize_review_config(spec.get("review_loop"))
 
-    ref_lines = "\n".join(
-        f"  - `{r['path']}` (view={r.get('view', 'hero')}, subject_aspect={r.get('subject_aspect_w_over_h')}, palette={r.get('dominant_palette')})"
-        for r in refs
-    ) or "  - (No reference images attached — research real-world dimensions & proportions first)"
+    persp_refs = [r for r in refs if r.get("projection", "perspective") != "ortho_blueprint"]
+    ortho_refs = [r for r in refs if r.get("projection") == "ortho_blueprint"]
+
+    def _fmt_ref(r: dict[str, Any]) -> str:
+        proj = r.get("projection", "perspective")
+        cam = r.get("camera") or {}
+        cam_hint = f", lens={cam.get('lens_mm')}mm" if proj == "perspective" and cam.get("lens_mm") else ""
+        return (
+            f"  - `{r['path']}` (mode=`{proj}`, view=`{r.get('view', 'hero')}`{cam_hint}, "
+            f"aspect={r.get('subject_aspect_w_over_h')}, palette={r.get('dominant_palette')})"
+        )
+
+    ref_lines = "\n".join(_fmt_ref(r) for r in refs) or (
+        "  - (No reference images attached — research real-world dimensions & proportions first)"
+    )
+
+    if persp_refs and not ortho_refs:
+        ref_strategy = (
+            "   - **Perspective Reference Workflow (NO Ortho Blueprint Grid):** All attached images are real perspective photos. "
+            "Use matched Blender perspective cameras (`vflib.refs.load_references(THIS_DIR)` or `refs.add_perspective_ref_camera(...)` "
+            "with matching focal length `28mm`/`35mm`/`50mm` and real eye-level/3-4 viewpoints) so `vforge qa` renders exact matched camera pairs in `renders/ref_comparison.png`."
+        )
+    elif ortho_refs and not persp_refs:
+        grid_note = " with `--ortho-grid` enabled" if ortho_grid else " (optional `--ortho-grid` available)"
+        ref_strategy = (
+            f"   - **Ortho Blueprint Workflow:** Load 1:1m orthographic blueprint planes via `refs.load_references(THIS_DIR, show_ortho_grid={ortho_grid})`{grid_note}."
+        )
+    elif persp_refs and ortho_refs:
+        ref_strategy = (
+            "   - **Hybrid Reference Workflow:** `refs.load_references(THIS_DIR)` automatically mounts `ortho_blueprint` images on 1:1m ortho planes "
+            "and spawns matched `VF_RefCam_*` perspective cameras (with camera background overlay) for all perspective photos!"
+        )
+    else:
+        ref_strategy = "   - Call `refs.load_references(THIS_DIR)` if references are added later."
+
+    qa_flags = f'--profile {spec.get("qa_profile", "roblox")} --forward-axis +Y'
+    if ortho_grid and ortho_refs:
+        qa_flags += " --ortho-grid"
+    if review_cfg["enabled"]:
+        qa_flags += " --snapshot-iteration"
+
+    if review_cfg["enabled"]:
+        focus_line = f"\n   - Critic Focus Notes: {review_cfg['focus_notes']}" if review_cfg.get("focus_notes") else ""
+        qa_warn_req = " and `0` Warnings" if review_cfg["require_zero_qa_warnings"] else ""
+        review_section = (
+            f"5. **Optional Iterative Critic & Honest Rating Loop (`ENABLED` — Target `{review_cfg['target_score']:.1f} / 10`, Max `{review_cfg['max_iterations']}` Iterations):**\n"
+            f"   - After inspecting ALL rendered views (`renders/ref_comparison.png`, `renders/qa_contact_material.png`, `renders/qa_contact_diagnostic.png`, and individual `renders/refcam_*.png`) against every reference photo + `qa_report.json`:\n"
+            f"   - Write a brutally honest **Iteration N Review — Honest Rating: X.X / 10** (NO grade inflation — explicitly list strengths AND categorized defects such as primitive foliage blobs, buried windows, clipping umbrellas/props, blurry signage, floating parts, or UV overlaps).{focus_line}\n"
+            f"   - Persist every iteration review so Velum Forge tracks progression & builds `reviews/iteration_progression.png`:\n"
+            f"     `vforge review log \"{asset_dir}\" --score <X.X> --summary \"...\" --strength \"...\" --defect \"Category|major|Defect|Exact fix\"`\n"
+            f"   - Iterate (fixing all critical/major visual defects AND geometric QA issues) until **Honest Rating >= {review_cfg['target_score']:.1f} / 10** with **QA PASS (`0` Errors{qa_warn_req})**, or until `{review_cfg['max_iterations']}` iterations are completed.\n\n"
+            f"6. **Bake `2048x2048` Cycles GPU PBR Maps, Variants & `LOD0`–`LOD3`:**\n"
+            f"   - Run: `vforge bake \"{asset_dir / 'bake_lod_variants.py'}\"` and inspect `renders/variants_lineup.png`, `renders/lod_comparison_sheet.png`, and `reviews/iteration_progression.png`."
+        )
+    else:
+        review_section = (
+            f"5. **Bake `2048x2048` Cycles GPU PBR Maps, Variants & `LOD0`–`LOD3`:**\n"
+            f"   - *(Iterative Rating Review Loop is `OFF` for this asset — single-pass QA mode. Toggle it ON anytime with `vforge review config \"{asset_dir}\" --enable`.)*\n"
+            f"   - Run: `vforge bake \"{asset_dir / 'bake_lod_variants.py'}\"` and inspect `renders/variants_lineup.png` and `renders/lod_comparison_sheet.png`."
+        )
 
     return (
         f"Build and refine the Velum Forge 3D asset **{title}** (`{slug}`, archetype=`{kind}`, target_length=`{length_m} m`) "
-        f"in `{asset_dir}` following the Velum Forge 6-Gate Standard:\n\n"
-        f"1. **Read Spec & Reference Images First:**\n"
+        f"in `{asset_dir}` following the Velum Forge Production Standard:\n\n"
+        f"1. **Read Spec & Inspect Every Reference Image First:**\n"
         f"   - Spec JSON: `{spec_file}`\n"
         f"   - User Description: {prompt}\n"
         f"   - Extracted Reference Palette: {', '.join(pal)}\n"
-        f"   - Reference Images (inspect every image visually before modeling!):\n{ref_lines}\n\n"
+        f"   - Reference Images (visually inspect EVERY image before modeling!):\n{ref_lines}\n"
+        f"{ref_strategy}\n\n"
         f"2. **Read Velum Forge Skills & Guardrails (`{REPO_ROOT}`):**\n"
         f"   - Activate `velum-3d-workflow` (and `velum-cad-brep` / `velum-organic-species` / `velum-pbr-bake-lods`).\n"
-        f"   - Engine imports: `sys.path.insert(0, r\"{BLENDER_ENGINE_DIR}\")` -> `from vflib import core, mats, gameready, integrity, bake, lod, export, refs`.\n"
-        f"   - Load viewport reference planes via `refs.load_reference_planes(THIS_DIR)`.\n\n"
+        f"   - Engine imports: `sys.path.insert(0, r\"{BLENDER_ENGINE_DIR}\")` -> `from vflib import core, mats, gameready, integrity, bake, lod, export, refs`.\n\n"
         f"3. **Author Bespoke Geometry & Shaders (`build_{slug}.py` + `bake_lod_variants.py`):**\n"
         f"   - Real-world meter scale (`+Y` forward, `+Z` up, `ground_z = 0.0000 m`), `< 20,000` tris per `MeshPart`, `>= 1.6 mm` wall thickness, positive signed volume normals, and `0` BVH shell breaches.\n\n"
-        f"4. **Verify 10-View QA + Side-by-Side Reference Comparison (`PASS` 0 Errors, 0 Warnings):**\n"
-        f"   - Run: `vforge qa \"{asset_dir / f'build_{slug}.py'}\" --profile {spec.get('qa_profile', 'roblox')} --forward-axis +Y`\n"
+        f"4. **Verify 10-View QA + Multi-Angle Side-by-Side Reference Comparison (`PASS` 0 Errors, 0 Warnings):**\n"
+        f"   - Run: `vforge qa \"{asset_dir / f'build_{slug}.py'}\" {qa_flags}`\n"
         f"   - Visually inspect `renders/qa_contact_material.png`, `renders/qa_contact_diagnostic.png`, and `renders/ref_comparison.png`!\n\n"
-        f"5. **Bake `2048x2048` Cycles GPU PBR Maps, 4 Variants & `LOD0`–`LOD3`:**\n"
-        f"   - Run: `vforge bake \"{asset_dir / 'bake_lod_variants.py'}\"` and inspect `renders/variants_lineup.png` and `renders/lod_comparison_sheet.png`."
+        f"{review_section}"
     )
 
 
@@ -109,6 +169,8 @@ def generate_parametric_scripts(
     length_m: float,
     references: list[dict[str, Any]],
     profile: str = "roblox",
+    ortho_blueprint_grid: bool = False,
+    review_loop: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Write reference-calibrated multi-part `build_<slug>.py` + `bake_lod_variants.py` + `asset_spec.json`."""
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -121,6 +183,8 @@ def generate_parametric_scripts(
         length_m=length_m,
         profile=profile,
         references=references,
+        ortho_blueprint_grid=ortho_blueprint_grid,
+        review_loop=review_loop,
     )
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     pal = spec["extracted_palette"]
@@ -129,7 +193,6 @@ def generate_parametric_scripts(
     c_belly = pal[2] if len(pal) > 2 else "#F1F5F9"
     c_accent = pal[3] if len(pal) > 3 else "#1E293B"
 
-    # Extract aspect ratio hint from side/hero reference if provided!
     ref_aspect = next((r["subject_aspect_w_over_h"] for r in references if r.get("subject_aspect_w_over_h")), None)
     pascal = pascal_case(slug)
     bl_engine = str(BLENDER_ENGINE_DIR).replace("\\", "\\\\")
@@ -139,7 +202,6 @@ def generate_parametric_scripts(
     bake_py = asset_dir / "bake_lod_variants.py"
 
     if kind == "fish":
-        # Calibrate body depth ratio from reference aspect ratio if available!
         depth_ratio = round(max(0.16, min(0.42, 0.82 / ref_aspect)), 3) if ref_aspect and ref_aspect > 1.2 else 0.24
         build_py.write_text(
             f'''"""Velum Forge Reference-Calibrated Organic Species — {title} (`{length_m} m` LOA).
@@ -247,7 +309,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
     m_fin = (mat_override or {{}}).get("Fins") or mats.pbr("{pascal}_Fins", color="{c_secondary}", roughness=0.28, metallic=0.20)
     m_eye = (mat_override or {{}}).get("Eyes") or mats.pbr("{pascal}_Eyes", color="#090D16", roughness=0.04, metallic=0.10)
 
-    # 1. Fuselage Body
     rings = []
     for i in range(1, 96):
         u = i / 96.0
@@ -263,7 +324,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
         rings.append(ring)
     body = _make_mesh_ob(_tube_with_caps(rings, Vector((0, SNOUT_Y + 0.003, 0)), Vector((0, PEDUNCLE_Y - 0.003, 0))), "Body", col, m_body)
 
-    # 2. Dorsal Fin
     d_rings = []
     for i in range(1, 56):
         s = i / 56.0
@@ -280,7 +340,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
     y_d1 = SNOUT_Y - 0.84 * (SNOUT_Y - PEDUNCLE_Y)
     dorsal = _make_mesh_ob(_tube_with_caps(d_rings, Vector((0, y_d0, _contours(0.22)[1] - 0.003)), Vector((0, y_d1, _contours(0.84)[1] - 0.003))), "DorsalFin", col, m_fin)
 
-    # 3. Forked Caudal Tail Fin
     c_rings = []
     span_z = LOA * DEPTH_RATIO * 0.72
     for i in range(1, 64):
@@ -297,7 +356,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
         ])
     caudal = _make_mesh_ob(_tube_with_caps(c_rings, Vector((0, TAIL_Y, -span_z)), Vector((0, TAIL_Y, span_z))), "CaudalFin", col, m_fin)
 
-    # 4. Eyes
     bm_e = bmesh.new()
     ey = SNOUT_Y - 0.12 * (SNOUT_Y - PEDUNCLE_Y)
     _, _, hw_e = _contours(0.12)
@@ -319,7 +377,7 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
     if errs:
         raise RuntimeError("Integrity check failed: " + "; ".join(errs))
 
-    refs.load_reference_planes(THIS_DIR)
+    refs.load_references(THIS_DIR, subject_objects=meshes)
     gameready.validate(meshes)
     return col, meshes
 
@@ -392,8 +450,157 @@ if __name__ == "__main__":
             encoding="utf-8",
         )
         return {"slug": slug, "dir": str(asset_dir), "spec": str(spec_path), "build_script": str(build_py)}
+    elif kind == "arch":
+        # Architecture / Building / Street Scene baseline (real metric scale, recessed glazing, awning, sidewalk)
+        build_py.write_text(
+            f'''"""Velum Forge Reference-Calibrated Architecture / Street Scene — {title} (`{length_m} m` frontage).
+
+Prompt: {prompt}
+Reference Palette: {pal}
+"""
+from __future__ import annotations
+
+import math
+import os
+import sys
+
+import bmesh
+import bpy
+from mathutils import Matrix, Vector
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if "{bl_engine}" not in sys.path:
+    sys.path.insert(0, "{bl_engine}")
+
+from vflib import core, gameready, integrity, mats, refs  # noqa: E402
+
+FRONTAGE = max(4.0, {float(length_m):.4f})
+DEPTH = FRONTAGE * 0.68
+HEIGHT = min(max(FRONTAGE * 0.62, 6.5), 14.0)
+
+
+def clear_scene_and_setup_units() -> None:
+    core.ensure_object_mode()
+    for ob in list(bpy.data.objects):
+        d = ob.data
+        bpy.data.objects.remove(ob, do_unlink=True)
+        core._free_data(d)
+    bpy.context.scene.unit_settings.system = "METRIC"
+    bpy.context.scene.unit_settings.scale_length = 1.0
+
+
+def _unwrap_clean(ob: bpy.types.Object) -> None:
+    core.ensure_object_mode()
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60.0), island_margin=0.012, scale_to_bounds=False)
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.010)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    ob.select_set(False)
+
+
+def _box_part(name: str, size: tuple[float, float, float], center: tuple[float, float, float], col, mat, bevel: float = 0.015):
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, vec=Vector(size), verts=bm.verts[:])
+    if bevel > 0.0:
+        bmesh.ops.bevel(bm, geom=bm.edges[:], offset=min(bevel, min(size) * 0.18), segments=2, affect="EDGES")
+    bmesh.ops.translate(bm, vec=Vector(center), verts=bm.verts[:])
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    integrity.ensure_positive_signed_volume(bm)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = False
+    me.materials.append(mat)
+    ob = bpy.data.objects.new(name, me)
+    col.objects.link(ob)
+    ob["sc_part"] = name
+    ob["sc_role"] = "solid"
+    _unwrap_clean(ob)
+    return ob
+
+
+def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_override: dict | None = None):
+    if clear_scene:
+        clear_scene_and_setup_units()
+    col = core.fresh_collection(collection_name)
+
+    m_stucco = (mat_override or {{}}).get("Hull") or mats.pbr("{pascal}_Stucco", color="{c_belly}", roughness=0.72, metallic=0.0)
+    m_trim = (mat_override or {{}}).get("Deck") or mats.pbr("{pascal}_Trim", color="{c_primary}", roughness=0.45, metallic=0.08)
+    m_awning = (mat_override or {{}}).get("Accent") or mats.pbr("{pascal}_Awning", color="{c_secondary}", roughness=0.65, metallic=0.0)
+    m_glass = mats.pbr("{pascal}_Glass", color="#101A26", roughness=0.06, metallic=0.25)
+    m_sidewalk = mats.pbr("{pascal}_Sidewalk", color="#B8B6AE", roughness=0.82, metallic=0.0)
+
+    # 1. Grounded Sidewalk & Curb Apron (Z=0..0.16m)
+    sidewalk = _box_part("Sidewalk", (FRONTAGE + 3.2, DEPTH + 4.4, 0.16), (0.0, 0.8, 0.08), col, m_sidewalk, bevel=0.012)
+
+    # 2. Main Architectural Massing Shell (seated firmly into sidewalk)
+    body = _box_part("FacadeMass", (FRONTAGE, DEPTH, HEIGHT), (0.0, -0.4, 0.14 + HEIGHT * 0.5), col, m_stucco, bevel=0.025)
+
+    # 3. Art-Deco Parapet Cornice & Horizontal Eyebrows
+    cornice = _box_part("Cornice", (FRONTAGE + 0.42, DEPTH + 0.42, 0.36), (0.0, -0.4, 0.14 + HEIGHT + 0.14), col, m_trim, bevel=0.02)
+
+    # 4. Storefront Canopy / Awning above Ground-Level Entry
+    awning = _box_part("Awning", (FRONTAGE * 0.72, 2.1, 0.24), (0.0, DEPTH * 0.5 + 0.55, 3.25), col, m_awning, bevel=0.02)
+
+    # 5. Upper-Story Window Bays (proud dark reflective glazing + trim sills seated cleanly into facade)
+    bm_g = bmesh.new()
+    n_bays = max(3, min(6, int(round(FRONTAGE / 3.2))))
+    span_x = FRONTAGE * 0.76
+    front_y = -0.4 + DEPTH * 0.5
+    for floor_idx in range(2):
+        fz = 4.9 + floor_idx * 3.1
+        if fz + 1.1 > HEIGHT:
+            break
+        for bi in range(n_bays):
+            bx = -span_x * 0.5 + (bi / max(n_bays - 1, 1)) * span_x
+            ret = bmesh.ops.create_cube(bm_g, size=1.0)
+            bmesh.ops.scale(bm_g, vec=Vector((1.45, 0.14, 1.75)), verts=ret["verts"])
+            bmesh.ops.translate(bm_g, vec=Vector((bx, front_y + 0.03, fz)), verts=ret["verts"])
+    bmesh.ops.triangulate(bm_g, faces=bm_g.faces[:])
+    integrity.ensure_positive_signed_volume(bm_g)
+    me_g = bpy.data.meshes.new("Glazing")
+    bm_g.to_mesh(me_g)
+    bm_g.free()
+    me_g.materials.append(m_glass)
+    glazing = bpy.data.objects.new("Glazing", me_g)
+    col.objects.link(glazing)
+    glazing["sc_part"] = "Glazing"
+    glazing["sc_role"] = "glass"
+    _unwrap_clean(glazing)
+
+    meshes = [sidewalk, body, cornice, awning, glazing]
+    lo, _ = core.world_bbox(meshes)
+    if abs(lo.z) > 1e-7:
+        for o in meshes:
+            o.data.transform(Matrix.Translation((0, 0, -lo.z)))
+            o.data.update()
+
+    # Load matched perspective Street View / photo cameras (or ortho blueprints if supplied)
+    refs.load_references(THIS_DIR, subject_objects=meshes)
+    gameready.validate(meshes)
+    return col, meshes
+
+
+def main() -> int:
+    _, meshes = build_all()
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(THIS_DIR, "{slug}.blend"))
+    bpy.ops.export_scene.gltf(filepath=os.path.join(THIS_DIR, "{slug}.glb"), export_format="GLB", export_apply=True)
+    return 0
+
+
+if __name__ == "__main__":
+    main()
+''',
+            encoding="utf-8",
+        )
     else:
-        # `boat` or `prop` multi-part watertight generator calibrated to `length_m` & reference palette!
         beam_ratio = 0.34 if kind == "boat" else 0.58
         height_ratio = 0.28 if kind == "boat" else 0.48
         build_py.write_text(
@@ -472,7 +679,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
     m_deck = (mat_override or {{}}).get("Deck") or mats.pbr("{pascal}_Secondary", color="{c_belly}", roughness=0.35, metallic=0.05)
     m_acc = (mat_override or {{}}).get("Accent") or mats.pbr("{pascal}_Accent", color="{c_accent}", roughness=0.22, metallic=0.65)
 
-    # Closed lofted primary hull / body
     bm_h = bmesh.new()
     rings = []
     for i in range(1, 56):
@@ -502,7 +708,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
             bm_h.faces.new((rings[i][j], rings[i][jn], rings[i + 1][jn], rings[i + 1][j]))
     hull = _make_part(bm_h, "Hull", col, m_hull)
 
-    # Superstructure / Console
     bm_c = bmesh.new()
     bmesh.ops.create_cube(bm_c, size=1.0)
     bmesh.ops.scale(bm_c, vec=Vector((BEAM * 0.42, LOA * 0.22, HEIGHT * 0.65)), verts=bm_c.verts[:])
@@ -510,7 +715,6 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
     bmesh.ops.bevel(bm_c, geom=bm_c.edges[:], offset=min(BEAM, HEIGHT) * 0.05, segments=3, affect="EDGES")
     console = _make_part(bm_c, "Console", col, m_deck)
 
-    # Accent Hardware / Motor
     bm_m = bmesh.new()
     bmesh.ops.create_cube(bm_m, size=1.0)
     bmesh.ops.scale(bm_m, vec=Vector((BEAM * 0.22, LOA * 0.10, HEIGHT * 0.58)), verts=bm_m.verts[:])
@@ -525,7 +729,7 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
             o.data.transform(Matrix.Translation((0, 0, -lo.z)))
             o.data.update()
 
-    refs.load_reference_planes(THIS_DIR)
+    refs.load_references(THIS_DIR, subject_objects=meshes)
     gameready.validate(meshes)
     return col, meshes
 
@@ -543,7 +747,7 @@ if __name__ == "__main__":
             encoding="utf-8",
         )
 
-    # Write complete 4-Variant + 4-Tier LOD + Studio Showcase Renderer script (`bake_lod_variants.py`)!
+    # Write complete 4-Variant + 4-Tier LOD + Studio Showcase Renderer script (`bake_lod_variants.py`)
     bake_py.write_text(
         f'''"""Velum Forge 4-Variant Showcase, LOD0-LOD3 & Render Generator for {title}."""
 from __future__ import annotations
@@ -564,7 +768,7 @@ from vflib import bake, core, lod, mats, render  # noqa: E402
 import build_{slug} as builder  # noqa: E402
 
 VARIANTS = [
-    ("reference_ match".replace(" ", ""), "{c_primary}", "{c_secondary}"),
+    ("reference_match", "{c_primary}", "{c_secondary}"),
     ("cobalt_edition", "#0F4C81", "#38BDF8"),
     ("crimson_sport", "#881337", "#F59E0B"),
     ("gold_legendary", "#D97706", "#FEF08A"),
@@ -607,7 +811,6 @@ def main() -> int:
             flagship_parts = p_objs
             lod_summary = lod.build_lod_chain(flagship_parts, os.path.join(THIS_DIR, "lods"), "{slug}", collection_prefix="{pascal}")
 
-    # Space variants neatly side-by-side & flush depsgraph so world_bbox sees all 4 translated models!
     lo, hi = core.world_bbox(list(flagship_parts.values()))
     span_x = max((hi.x - lo.x) * 2.25, (hi.y - lo.y) * 0.42, 0.25)
     all_m = []
@@ -680,7 +883,7 @@ if __name__ == "__main__":
     }
 
 
-def build_ai_cli_invocation(engine_id: str, asset_dir: Path) -> list[str] | None:
+def build_ai_cli_invocation(engine_id: str, asset_dir: Path, *, next_iteration: bool = False) -> list[str] | None:
     """Return non-interactive command line to run `claude`, `codex`, or `gemini` on `<asset_dir>`."""
     clis = {c["id"]: c for c in detect_ai_clis()}
     if engine_id == "auto":
@@ -692,7 +895,13 @@ def build_ai_cli_invocation(engine_id: str, asset_dir: Path) -> list[str] | None
     if not chosen or not chosen["exe"]:
         return None
 
-    brief = build_agent_handoff_prompt(asset_dir)
+    if next_iteration:
+        from .review import build_next_iteration_prompt
+
+        brief = build_next_iteration_prompt(asset_dir)
+    else:
+        brief = build_agent_handoff_prompt(asset_dir)
+
     exe = str(chosen["exe"])
     cid = chosen["id"]
 

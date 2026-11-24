@@ -6,7 +6,9 @@
 flowchart LR
     A["build123d B-Rep CAD\n(Meters, +Z Up)"] -->|cad_bridge.py\nSTEP + 1:1m GLB| B["Blender 5.2+ Assembly\n(vflib BMesh + Sockets)"]
     B -->|BVHTree + Signed Volume| C["Gate 3: Shell Integrity\n(0 Breaches / 0 Floating)"]
-    C -->|qa_pipeline.py\n10 Camera Views| D["Gate 4: Visual & Mesh QA\n(PASS: 0 Errors, 0 Warnings)"]
+    C -->|qa_pipeline.py\n10 Views + Matched RefCams| D["Gate 4: Visual & Multi-Ref QA\n(PASS: 0 Errors, 0 Warnings)"]
+    D -.->|Optional Opt-In\nvforge review| R["Gate 4B (Optional): Critic Loop\nHonest X.X/10 + Defect Fixes"]
+    R -.->|Iterate until >= Target| B
     D -->|Cycles OPTIX GPU\n2048x2048 Atlas| E["Gate 5: 6-Map PBR Bake\n(Color, Normal, Rough, Metal, AO, ORM)"]
     E -->|vflib.lod + vflib.export| F["Gate 6: 4 Variants + LOD0-LOD3\n(.glb + .fbx + .studio_setup.luau)"]
 ```

@@ -206,20 +206,37 @@ def _frame_camera(
 
 
 def _configure_cycles_gpu(scene: bpy.types.Scene, samples: int) -> str:
+    try:
+        from vflib import bake as _vf_bake
+
+        dev = _vf_bake.enable_cycles_gpu(scene, use_denoising=True)
+        scene.cycles.samples = samples
+        return dev
+    except Exception:
+        pass
+
     scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
-    scene.cycles.use_denoising = True
+    cpus = os.cpu_count() or 8
+    try:
+        scene.render.threads_mode = "FIXED"
+        scene.render.threads = min(8, max(2, cpus // 2))
+        scene.cycles.use_auto_tile = True
+        scene.cycles.tile_size = 512
+    except Exception:
+        pass
+
     device_used = "CPU"
     try:
         prefs = bpy.context.preferences.addons["cycles"].preferences
-        for dev_type in ("OPTIX", "CUDA", "HIP", "ONEAPI"):
+        for dev_type in ("OPTIX", "CUDA", "HIP", "ONEAPI", "METAL"):
             try:
                 prefs.compute_device_type = dev_type
                 prefs.get_devices()
                 devs = [d for d in prefs.devices if d.type == dev_type]
                 if devs:
                     for d in prefs.devices:
-                        d.use = d.type == dev_type
+                        d.use = (d.type == dev_type)
                     scene.cycles.device = "GPU"
                     device_used = dev_type
                     break
@@ -229,6 +246,19 @@ def _configure_cycles_gpu(scene: bpy.types.Scene, samples: int) -> str:
         pass
     if device_used == "CPU":
         scene.cycles.device = "CPU"
+
+    scene.cycles.use_denoising = True
+    if device_used == "OPTIX":
+        try:
+            scene.cycles.denoiser = "OPTIX"
+        except Exception:
+            pass
+    elif device_used != "CPU":
+        try:
+            scene.cycles.denoiser = "OPENIMAGEDENOISE"
+            scene.cycles.denoising_use_gpu = True
+        except Exception:
+            pass
     return device_used
 
 
@@ -364,6 +394,72 @@ def _oriented_dir(direction: tuple[float, float, float], forward_axis: str, is_t
     return direction
 
 
+def _load_asset_spec(args: argparse.Namespace) -> dict:
+    candidates: list[str] = []
+    if getattr(args, "spec", ""):
+        candidates.append(os.path.abspath(args.spec))
+    if args.input:
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(args.input)), "asset_spec.json"))
+    for c in candidates:
+        if c and os.path.isfile(c):
+            try:
+                with open(c, "r", encoding="utf-8-sig") as fh:
+                    return json.load(fh)
+            except Exception:
+                return {}
+    return {}
+
+
+def _discover_ref_cameras() -> list[bpy.types.Object]:
+    cams = [
+        o for o in bpy.data.objects
+        if o.type == "CAMERA" and (o.name.startswith("VF_RefCam_") or o.get("vf_ref_image"))
+    ]
+    cams.sort(key=lambda o: o.name)
+    return cams
+
+
+def _frame_perspective_spec(
+    cam: bpy.types.Object,
+    lo: Vector,
+    hi: Vector,
+    cam_cfg: dict,
+    res_x: int,
+    res_y: int,
+) -> None:
+    center = (lo + hi) * 0.5
+    radius = max((hi - lo).length * 0.5, 0.25)
+    lens_mm = float(cam_cfg.get("lens_mm") or 35.0)
+    cam.data.type = "PERSP"
+    cam.data.lens = lens_mm
+    aspect = res_x / max(res_y, 1)
+
+    if "location" in cam_cfg and "target" in cam_cfg:
+        loc = Vector(cam_cfg["location"])
+        tgt = Vector(cam_cfg["target"])
+    else:
+        az = math.radians(float(cam_cfg.get("azimuth_deg", 38.0)))
+        el = math.radians(float(cam_cfg.get("elevation_deg", 16.0)))
+        dist_scale = float(cam_cfg.get("distance_scale", 1.18))
+        fov_h = 2.0 * math.atan(cam.data.sensor_width / (2.0 * max(lens_mm, 8.0)))
+        fov_v = 2.0 * math.atan(math.tan(fov_h * 0.5) / aspect)
+        dist = radius / max(math.sin(min(fov_h, fov_v) * 0.5), 0.12) * dist_scale
+        d = Vector((math.sin(az) * math.cos(el), math.cos(az) * math.cos(el), math.sin(el)))
+        loc = center + d * dist
+        if cam_cfg.get("eye_height_m") is not None:
+            loc.z = float(cam_cfg["eye_height_m"])
+        tgt = Vector(cam_cfg["target"]) if "target" in cam_cfg else center
+
+    direction = tgt - loc
+    if direction.length < 1e-6:
+        direction = Vector((0.0, 1.0, 0.0))
+    cam.location = loc
+    cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    dist_eff = max(direction.length, 0.5)
+    cam.data.clip_start = max(0.01, dist_eff / 500.0)
+    cam.data.clip_end = max(dist_eff * 25.0, 200.0)
+
+
 def run_pipeline(args: argparse.Namespace) -> dict:
     if args.input:
         _import_asset(os.path.abspath(args.input))
@@ -374,7 +470,8 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         raise RuntimeError("No target MESH objects found to inspect and render.")
 
     os.makedirs(args.out_dir, exist_ok=True)
-    asset_name = args.asset_name or (
+    spec = _load_asset_spec(args)
+    asset_name = args.asset_name or spec.get("title") or (
         os.path.splitext(os.path.basename(args.input))[0]
         if args.input
         else args.collection
@@ -415,7 +512,8 @@ def run_pipeline(args: argparse.Namespace) -> dict:
     studio_world = None
     backface_mat = None
     temp_obs: list[bpy.types.Object] = []
-    tiles: dict[str, dict[str, str]] = {}
+    tiles: dict[str, dict] = {}
+    ref_pairs: list[dict] = []
 
     try:
         for o in sc.objects:
@@ -458,7 +556,88 @@ def run_pipeline(args: argparse.Namespace) -> dict:
             out_png = os.path.join(args.out_dir, f"tile_{key}.png")
             sc.render.filepath = out_png
             bpy.ops.render.render(write_still=True)
-            tiles[key] = {"path": out_png, "label": label}
+            tile_meta = {"path": out_png, "label": label, "projection": proj}
+            if proj == "ORTHO":
+                tile_meta["ortho_scale_m"] = round(float(cam.data.ortho_scale), 4)
+            tiles[key] = tile_meta
+
+        # 1b) Matched Perspective Reference Cameras (`VF_RefCam_*` in scene OR perspective refs in asset_spec.json)
+        matched_ref_paths: set[str] = set()
+        scene_ref_cams = _discover_ref_cameras()
+        for r_idx, rcam in enumerate(scene_ref_cams[:8]):
+            sc.camera = rcam
+            out_png = os.path.join(args.out_dir, f"tile_refcam_{r_idx:02d}.png")
+            sc.render.filepath = out_png
+            bpy.ops.render.render(write_still=True)
+            ref_img = str(rcam.get("vf_ref_image") or "")
+            vw = str(rcam.get("vf_ref_view") or rcam.name)
+            lens_mm = round(float(rcam.data.lens), 1)
+            lbl = f"MATCHED CAM: {vw.upper()} (PERSP {lens_mm:g}mm)"
+            tiles[f"refcam_{r_idx:02d}"] = {"path": out_png, "label": lbl, "projection": "PERSP", "lens_mm": lens_mm}
+            if ref_img and os.path.isfile(ref_img):
+                matched_ref_paths.add(os.path.normcase(os.path.abspath(ref_img)))
+                ref_pairs.append({
+                    "ref_path": os.path.abspath(ref_img),
+                    "ref_label": f"REFERENCE ({os.path.basename(ref_img)}) [{vw.upper()}]",
+                    "model_path": out_png,
+                    "model_label": f"MODEL — {lbl}",
+                    "projection": "PERSP",
+                    "lens_mm": lens_mm,
+                })
+        sc.camera = cam
+
+        # Fallback: pair any remaining spec references (perspective cameras or ortho blueprints)
+        ortho_key_map = {
+            "ortho_front": "front",
+            "front": "front",
+            "ortho_back": "back",
+            "back": "back",
+            "ortho_top": "top",
+            "top": "top",
+            "ortho_side": "side",
+            "side": "side",
+        }
+        persp_fallback_idx = len(scene_ref_cams)
+        for s_ref in (spec.get("references") or [])[:8]:
+            rp = str(s_ref.get("path") or "")
+            if not rp or not os.path.isfile(rp):
+                continue
+            norm_rp = os.path.normcase(os.path.abspath(rp))
+            if norm_rp in matched_ref_paths:
+                continue
+            matched_ref_paths.add(norm_rp)
+            vw = str(s_ref.get("view") or "hero").lower()
+            proj = str(s_ref.get("projection") or ("ortho_blueprint" if vw in ortho_key_map else "perspective")).lower()
+            if proj == "ortho_blueprint":
+                tk = ortho_key_map.get(vw, "side")
+                tile_info = tiles.get(tk) or tiles.get("side")
+                if tile_info:
+                    ref_pairs.append({
+                        "ref_path": os.path.abspath(rp),
+                        "ref_label": f"BLUEPRINT ({os.path.basename(rp)}) [{tk.upper()} ORTHO]",
+                        "model_path": tile_info["path"],
+                        "model_label": f"MODEL — {tile_info['label']}",
+                        "projection": "ORTHO",
+                        "ortho_scale_m": tile_info.get("ortho_scale_m"),
+                    })
+            else:
+                cam_cfg = dict(s_ref.get("camera") or {})
+                _frame_perspective_spec(cam, lo, hi, cam_cfg, res_x, res_y)
+                out_png = os.path.join(args.out_dir, f"tile_refcam_{persp_fallback_idx:02d}.png")
+                sc.render.filepath = out_png
+                bpy.ops.render.render(write_still=True)
+                lens_mm = round(float(cam.data.lens), 1)
+                lbl = f"MATCHED CAM: {vw.upper()} (PERSP {lens_mm:g}mm)"
+                tiles[f"refcam_{persp_fallback_idx:02d}"] = {"path": out_png, "label": lbl, "projection": "PERSP", "lens_mm": lens_mm}
+                ref_pairs.append({
+                    "ref_path": os.path.abspath(rp),
+                    "ref_label": f"REFERENCE ({os.path.basename(rp)}) [{vw.upper()}]",
+                    "model_path": out_png,
+                    "model_label": f"MODEL — {lbl}",
+                    "projection": "PERSP",
+                    "lens_mm": lens_mm,
+                })
+                persp_fallback_idx += 1
 
         # Underbody / Bottom in same material look
         bottom_dir = _oriented_dir((0.75, -0.75, -0.75), args.forward_axis)
@@ -466,7 +645,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         bottom_png = os.path.join(args.out_dir, "tile_diag_bottom.png")
         sc.render.filepath = bottom_png
         bpy.ops.render.render(write_still=True)
-        tiles["diag_bottom"] = {"path": bottom_png, "label": "UNDERBODY / BOTTOM"}
+        tiles["diag_bottom"] = {"path": bottom_png, "label": "UNDERBODY / BOTTOM", "projection": "PERSP"}
 
         # 2) Diagnostic 1: Wireframe (Hero 3/4)
         hero_dir = _oriented_dir((0.85, -1.0, 0.45), args.forward_axis)
@@ -490,7 +669,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         wire_png = os.path.join(args.out_dir, "tile_diag_wire.png")
         sc.render.filepath = wire_png
         bpy.ops.render.render(write_still=True)
-        tiles["diag_wire"] = {"path": wire_png, "label": "WIREFRAME (HERO 3/4)"}
+        tiles["diag_wire"] = {"path": wire_png, "label": "WIREFRAME (HERO 3/4)", "projection": "PERSP"}
 
         for w in temp_obs:
             bpy.data.objects.remove(w, do_unlink=True)
@@ -501,7 +680,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         parts_png = os.path.join(args.out_dir, "tile_diag_parts.png")
         sc.render.filepath = parts_png
         bpy.ops.render.render(write_still=True)
-        tiles["diag_parts"] = {"path": parts_png, "label": "PART COLORS (HERO 3/4)"}
+        tiles["diag_parts"] = {"path": parts_png, "label": "PART COLORS (HERO 3/4)", "projection": "PERSP"}
 
         # 4) Diagnostic 3: Face Orientation (Blue=Outward / Red=Flipped)
         _configure_cycles_gpu(sc, samples=16)
@@ -513,6 +692,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         tiles["diag_normals"] = {
             "path": normals_png,
             "label": "FACE ORIENTATION (BLUE=OUT / RED=FLIPPED)",
+            "projection": "PERSP",
         }
 
         qa_path = os.path.join(args.out_dir, "qa_report.json")
@@ -521,9 +701,19 @@ def run_pipeline(args: argparse.Namespace) -> dict:
 
         man_path = os.path.join(args.out_dir, "render_manifest.json")
         with open(man_path, "w", encoding="utf-8") as fh:
-            json.dump({"asset_name": asset_name, "tiles": tiles}, fh, indent=2)
+            json.dump(
+                {
+                    "asset_name": asset_name,
+                    "ortho_grid": bool(getattr(args, "ortho_grid", False) or spec.get("ortho_blueprint_grid", False)),
+                    "size_m": metrics["size_m"],
+                    "tiles": tiles,
+                    "ref_pairs": ref_pairs,
+                },
+                fh,
+                indent=2,
+            )
 
-        print(f"@@QA_DONE@@ {json.dumps({'pass': qa['pass'], 'tris': qa['total_tris'], 'qa_json': qa_path, 'manifest': man_path})}", flush=True)
+        print(f"@@QA_DONE@@ {json.dumps({'pass': qa['pass'], 'tris': qa['total_tris'], 'qa_json': qa_path, 'manifest': man_path, 'ref_pairs': len(ref_pairs)})}", flush=True)
         return qa
 
     finally:
@@ -583,6 +773,8 @@ def main() -> int:
     parser.add_argument("--res-y", type=int, default=480)
     parser.add_argument("--asset-name", default="")
     parser.add_argument("--forward-axis", default="-Y", choices=["-Y", "+Y"])
+    parser.add_argument("--spec", default="", help="Optional path to asset_spec.json")
+    parser.add_argument("--ortho-grid", action="store_true", help="Enable optional metric blueprint grid on ORTHO views only")
     args = parser.parse_args(_argv())
 
     run_pipeline(args)

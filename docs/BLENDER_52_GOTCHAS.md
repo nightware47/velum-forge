@@ -60,3 +60,20 @@ When Cycles writes several high-res PNGs rapidly into a OneDrive-synced folder, 
 
 ## 6. Freed StructRNA References When Clearing Studio Collections
 `vflib.core.clear_collection(studio_col)` automatically removes zero-user datablocks (`Light`, `Camera`, `Mesh`). Calling `bpy.data.lights.remove(light_data)` afterward raises `ReferenceError: StructRNA of type AreaLight has been removed`. Let `clear_collection` clean up datablocks on its own.
+
+---
+
+## 7. Hybrid GPU + All-Core CPU Power Spikes (`d.use = True`) & CPU OIDN Denoising Spikes
+On high-core-count workstations (e.g. 16-core/32-thread Ryzen 9 + RTX GPU), two silent Cycles defaults cause simultaneous GPU + all-core CPU transient spikes during `vforge bake`:
+1. **Never loop `for d in prefs.devices: d.use = True`:** That activates **both** the GPU (`OPTIX`/`CUDA`) and all CPU cores simultaneously! Always filter strictly to GPU-only:
+   ```python
+   for d in prefs.devices:
+       d.use = (d.type == dev_type)
+   ```
+2. **Never leave default CPU `OPENIMAGEDENOISE` with `AUTO` threads:** Blender 5.2/5.3 defaults `sc.cycles.denoiser = "OPENIMAGEDENOISE"` with `denoising_use_gpu = False` and `threads_mode = "AUTO"`, firing an all-core AVX2 CPU spike right on top of a hot GPU pass!
+- **Fix (Built Automatically into `vflib.bake.enable_cycles_gpu` & `vforge bake`):**
+  - Strictly GPU-only device selection (`d.use = (d.type == dev_type)`).
+  - GPU denoising (`sc.cycles.denoiser = "OPTIX"` on OptiX GPUs, or `denoising_use_gpu = True` on CUDA/HIP/ONEAPI/Metal).
+  - Fixed CPU thread cap (`sc.render.threads_mode = "FIXED"`, `-t 8` / `VELUM_BLENDER_THREADS=8`, `OMP_NUM_THREADS=8`).
+  - Safe tile size (`sc.cycles.use_auto_tile = True`, `tile_size = 512`) + `1.0 s` thermal cooldown (`VELUM_BAKE_COOLDOWN=1.0`) between heavy Cycles passes.
+  - Cross-process sequential GPU lock (`~/.velum-forge/gpu_bake.lock`) so concurrent bakes never overlap, plus `--factory-startup` by default in headless batch jobs (opt in with `--user-addons`).

@@ -1,24 +1,27 @@
 ---
 name: velum-3d-workflow
-description: Master 6-stage Velum Forge runbook for building production-grade, zero-clipping, Cycles-baked 2K PBR 3D assets (vehicles, boats, props, wildlife/fish) with 4 variants, 4-tier LOD0-LOD3 chains, and automated 10-view Roblox/glTF QA. Activate first on any end-to-end 3D asset build or overhaul request.
+description: Master 6-stage Velum Forge runbook for building production-grade, zero-clipping, Cycles-baked 2K PBR 3D assets (vehicles, boats, architecture/street scenes, props, wildlife/fish) with matched perspective reference cameras, optional Honest Rating Iteration Reviews, 4 variants, 4-tier LOD0-LOD3 chains, and automated 10-view Roblox/glTF QA. Activate first on any end-to-end 3D asset build or overhaul request.
 ---
 
-# Velum Forge — Master 6-Stage 3D Asset Workflow
+# Velum Forge — Master 6-Stage 3D Asset Workflow (v1.2)
 
-Use this skill whenever asked to create, overhaul, or productionize a 3D model. Every Velum Forge asset passes **6 deterministic engineering gates** — never skip straight from raw geometry to delivery without visual QA, BVH shell-integrity verification, real PBR texture baking, and LODs.
+Use this skill whenever asked to create, overhaul, or productionize a 3D model. Every Velum Forge asset passes **6 deterministic engineering gates** plus an **optional Iterative Visual Critic & Honest Rating Review Loop**.
 
 ## Pipeline Architecture
 
 ```text
-Stage 0: Reference Intake & Spec (`references/*` + `asset_spec.json` + 1:1m Viewport Planes)
+Stage 0: Reference Intake & Spec (`references/*` + `asset_spec.json` + Perspective Cams OR Ortho Blueprints)
    │
 Stage 1: Precision CAD Hardware (build123d -> STEP + 1:1m watertight GLB)   [velum-cad-brep]
    │
-Stage 2: Parametric / Organic BMesh Assembly in Meters (+Y fwd, Z=0 ground)  [velum-organic-species]
+Stage 2: Parametric / Organic / Arch BMesh Assembly in Meters (+Y fwd, Z=0) [velum-organic-species]
    │
 Stage 3: Hard BVH Shell-Integrity & Signed-Volume Normal Gate (0 breaches)
    │
-Stage 4: Automated 10-View QA + Side-by-Side `ref_comparison.png` (`PASS` 0E/0W)
+Stage 4: Automated 10-View QA + Multi-Angle `ref_comparison.png` (`PASS` 0E/0W)
+   │
+Stage 4B (OPTIONAL): Iterative Visual Critic & Honest Rating Loop (`vforge review`)
+   │      Snapshot -> Honest X.X/10 Rating + Categorized Defects -> Fix -> Re-QA until >= Target
    │
 Stage 5: Cycles GPU (OPTIX) 2048x2048 PBR Texture Bake + Multi-Variant Build [velum-pbr-bake-lods]
    │
@@ -27,60 +30,71 @@ Stage 6: Seam-Locked 4-Tier LOD0..LOD3 + Game Engine Export + Visual Review
 
 ## Stage-by-Stage Execution Checklist
 
-### Stage 0 — Reference Images, `asset_spec.json` & Starting a New Asset
-- **Starting from scratch or reference photos:**
+### Stage 0 — Perspective Photos vs. Ortho Blueprints & `asset_spec.json`
+- **Real Perspective Photos (`projection: "perspective"` — Street View, 3/4 shots, close-ups, aerials):**
+  - Do **NOT** slap flat ortho blueprint planes or ortho grids onto perspective photos!
+  - Call `refs.load_references(THIS_DIR, subject_objects=meshes)` (or register exact custom viewpoints with `refs.add_perspective_ref_camera("StreetCorner_01", img_path, location=(...), target=(...), lens_mm=28.0)`) so Blender mounts real matched perspective cameras (`VF_RefCam_*`) with camera background overlays.
+  - `vforge qa` automatically renders EVERY `VF_RefCam_*` camera and builds a **multi-angle side-by-side `renders/ref_comparison.png`** pairing all reference photos 1-to-1 with their matched model renders!
+- **Orthographic Blueprints (`projection: "ortho_blueprint"` — Side/Front/Back/Top elevations ONLY):**
+  - `refs.load_references(THIS_DIR)` mounts `1:1 m` orthographic planes in `VF_References_ref`.
+  - Pass `--ortho-grid` to `vforge qa` (or set `ortho_blueprint_grid: true` in `asset_spec.json`) ONLY when you want a calibrated metric ruler grid on `ORTHO` blueprint views — never on perspective shots!
+- **Starting from CLI with optional Iterative Rating Mode:**
   ```powershell
-  # Stages reference photos into <dir>/references/, extracts dominant hex palette & aspect ratio,
-  # writes asset_spec.json, and generates a reference-calibrated baseline + Ref-vs-Model QA sheet:
-  vforge generate red_snapper --kind fish --length 0.85 --ref path\to\snapper_side.jpg --prompt "Northern Red Snapper"
+  # Standard single-pass build:
+  vforge generate red_snapper --kind fish --length 0.85 --ref path\to\snapper_photo.jpg --prompt "Northern Red Snapper"
+
+  # Architecture / Street Scene with multiple Street View photos + Optional Iterative Honest Rating Loop:
+  vforge generate ocean_dr_800 --kind arch --length 18.0 --ref gsv1.jpg --ref gsv2.jpg --iterate --target-score 9.0 --max-iterations 3
   ```
-- **When refining an existing or Studio-staged asset folder:**
-  1. Always check `<asset_dir>/asset_spec.json` first and **visually read every image inside `<asset_dir>/references/`** before writing geometry!
-  2. Call `refs.load_reference_planes(THIS_DIR)` (`from vflib import refs`) inside `build_<slug>.py` so `1:1 m` orthographic reference planes are placed inside `VF_References_ref` (automatically ignored by QA triangle checks & game exports).
-  3. Whenever `<asset_dir>/references/` contains at least one image, `vforge qa` **automatically generates `<asset_dir>/renders/ref_comparison.png`** placing `REFERENCE` side-by-side next to `MODEL` — always inspect `ref_comparison.png` visually and iterate until silhouette, proportions, and colors match!
 
 ### Stage 1 — Precision Mechanical CAD Sub-Assemblies (`velum-cad-brep`)
-- Whenever an asset includes machined, cast, or ergonomic hardware (steering wheels, cleats, throttles, propellers, rod launchers, hinges, brackets), build them in `build123d` (`engine/cad/cad_bridge.py`) at `1.0 unit = 1.0 meter` (`+Z = Up`).
-- Export via `export_cad_part()` / `export_cad_assembly()`, which cleans OpenCascade B-Reps, converts `Z-up -> glTF Y-up` once, welds vertices, verifies positive volume, and writes `.step` + `.glb`.
-- Import those `.glb` sub-parts into Blender (`bpy.ops.import_scene.gltf`) at exact `1:1` meter coordinates.
+- Whenever an asset includes machined, cast, or ergonomic hardware (steering wheels, cleats, throttles, propellers, door pulls, sconces, brackets), build them in `build123d` (`engine/cad/cad_bridge.py`) at `1.0 unit = 1.0 meter` (`+Z = Up`).
+- Export via `export_cad_part()` / `export_cad_assembly()` and import `.glb` sub-parts into Blender (`bpy.ops.import_scene.gltf`) at exact `1:1` meter coordinates.
 
-### Stage 2 — Parametric / Organic Primary Forms (`vflib`)
-- Add `<velum-forge>/engine/blender` to `sys.path` and import `from vflib import core, mats, gameready, integrity, bake, lod, export, render`.
+### Stage 2 — Parametric / Organic / Architectural Primary Forms (`vflib`)
+- Add `<velum-forge>/engine/blender` to `sys.path` and import `from vflib import core, mats, gameready, integrity, bake, lod, export, render, refs`.
 - **Coordinate standard:** `1 unit = 1.0 m`, `+X` = Right/Starboard, `+Y` = Forward (`vflib` convention; maps to Roblox `-Z` `LookVector`), `+Z` = Up.
-- **Closed watertight manifolds (`S^2`):** Build hulls, bodies, and hydrofoil fins from ordered circumferential rings capped at both ends (`_build_closed_tube_with_caps`) so Euler characteristic $\chi = V - E + F = 2$ (`0` boundary edges, `0` non-manifold edges).
-- **Ground exact lowest vertex to `Z = 0.0000 m`:** Shift mesh vertex data (`ob.data.transform(Matrix.Translation((0, 0, -lo.z)))`) so object origins stay `(0, 0, 0)` and `scale = (1, 1, 1)`.
-- **Tag every mesh:** Set `ob["sc_part"] = "<MeshPartName>"` (keeping each `MeshPart < 20,000` tris for Roblox) and `ob["sc_role"] = "solid" | "paint" | "glass" | "neon"`. Add `core.socket("Name", col, loc)` for functional attachments/hinges.
+- **Closed watertight manifolds (`S^2`):** Build hulls, bodies, and hydrofoil fins from ordered circumferential rings capped at both ends so Euler characteristic $\chi = V - E + F = 2$.
+- **Ground exact lowest vertex to `Z = 0.0000 m`** while keeping object scale `(1, 1, 1)`.
+- **Tag every mesh:** Set `ob["sc_part"] = "<MeshPartName>"` (`< 20,000` tris per `MeshPart` for Roblox) and `ob["sc_role"] = "solid" | "paint" | "glass" | "neon"`.
 
 ### Stage 3 — Hard BVH Shell-Integrity Gate
-- **Never extrude interior floors, bulkheads, lockers, or fin roots blindly.** Clamp interior coordinates strictly inside the inner wall (`x_max = inner_hull_x(y, z) - clearance`).
-- Run `BVHTree.FromBMesh` overlap & raycast checks (`vflib.integrity`) before saving:
-  - `0` outer-shell breaches from interior parts.
-  - `100%` positive root socket contact (`< 1.5 mm`) on attached fins, eyes, rails, or hardware (`0` floating parts).
-  - Exact **signed-volume normal check** (`integrity.ensure_positive_signed_volume(bm)`) so concave V-forked tails or thin shells never invert normals.
-  - Keep thin closed walls `>= 1.6 mm` thick (`half_thickness >= 0.80 mm`) so `qa_check.py` (`--eps 0.001`) never flags hidden `< 1 mm` back-to-back faces.
+- Never extrude interior floors, bulkheads, lockers, or fin roots blindly through outer shells. Clamp interior coordinates strictly inside the inner wall (`vflib.integrity`).
+- Run `integrity.ensure_positive_signed_volume(bm)` on every closed manifold and keep thin closed walls `>= 1.6 mm` thick (`half_thickness >= 0.80 mm`) so `qa_check.py` (`--eps 0.001`) never flags back-to-back faces.
 
-### Stage 4 — 10-View Automated QA Gate (`0` Errors, `0` Warnings)
+### Stage 4 — 10-View Automated QA + Multi-Angle Reference Comparison (`0` Errors, `0` Warnings)
 - Run:
   ```powershell
   vforge qa path\to\build_asset.py --profile roblox --forward-axis +Y
-  # or directly:
-  .\engine\cad\run_qa.ps1 -Asset path\to\build_asset.py -Profile roblox -ForwardAxis "+Y"
+  # Add --ortho-grid ONLY for ortho blueprints; add --snapshot-iteration when Iterative Review is active:
+  vforge qa path\to\build_asset.py --profile roblox --forward-axis +Y --snapshot-iteration
   ```
-- **Always inspect both rendered contact sheets visually** (`contact_sheet_material.png` + `contact_sheet_diagnostic.png`) plus `underbody` views. Fix every error AND every warning until the banner is green **`PASS (Errors: 0, Warnings: 0)`**.
+- **Always inspect visually** (`read_file`): `renders/qa_contact_material.png`, `renders/qa_contact_diagnostic.png`, `renders/ref_comparison.png`, and any individual `renders/refcam_*.png` shots.
+
+### Stage 4B (OPTIONAL) — Iterative Visual Critic & Honest Rating Loop (`vforge review`)
+Check `asset_spec.json["review_loop"]["enabled"]` (or whether the user requested iterative rating reviews).
+- **If `enabled == false`** (default fast mode): skip straight to Stage 5 once Stage 4 passes (`0` errors, `0` warnings).
+- **If `enabled == true`** (or explicitly requested by the user):
+  1. Visually inspect ALL rendered views against ALL reference photos + `qa_report.json`.
+  2. Be **brutally honest — NO grade inflation!** Explicitly call out icosphere/blob foliage, broomstick branches, buried windows, clipping umbrellas/props, blurry signage, curb overhang, floating parts, z-fighting, or UV overlaps.
+  3. Score across the 6 rubric axes (`silhouette_proportions`, `reference_fidelity`, `detail_craft`, `materials_lighting`, `geometric_qa`, `scene_continuity`). Remember: `velum_forge.review` **automatically caps** the rating at `7.9/10` if `qa_report.json` has errors (or `8.9/10` if warnings remain when zero-warnings is enforced).
+  4. Record each iteration via CLI (automatically archives snapshots, updates `reviews/REVIEW_LOG.md`, and renders `reviews/iteration_progression.png`!):
+     ```powershell
+     vforge review log path\to\asset_dir `
+       --score 7.8 `
+       --summary "Huge jump on glazing, signage, and palm fronds, but not 10/10 yet." `
+       --strength "Dark reflective windows across all 3 stories and 100% outward blue face orientation" `
+       --defect "Shade Trees|major|Straight branch cylinders radiate like broomsticks|Build gnarled curved boughs wrapped in full billowing broad-leaf canopy" `
+       --defect "Geometric QA|critical|Floating breeze blocks (6mm gap) and chair backrests|Bridge mortar joints and seat backrests into frames"
+     ```
+  5. Fix every critical/major defect + every QA report issue, re-run `vforge qa ... --snapshot-iteration`, and log the next iteration until **`honest_rating >= target_score`** (default `9.0 / 10`) AND **`QA PASS (0E/0W)`**, or until `max_iterations` is reached.
+  6. Use `vforge review status <dir>` to check score progression and `vforge review prompt <dir>` to generate a focused defect-fix prompt!
 
 ### Stage 5 — Cycles GPU `2048x2048` PBR Bake & Variants (`velum-pbr-bake-lods`)
-- Author rich procedural Cycles materials (wood planks + caulk grooves, diamond non-skid, imbricated scales, leather grain, sonar UI, weathered metal) and bake true `2048x2048` maps (`Color` w/ linear raytraced AO -> `sRGB`, OpenGL `Normal`, `Roughness`, `Metalness`, `AO`, `ORM` -> `Non-Color`).
-- Build **3–4 distinct variants** (including genuine geometry/equipment variations where appropriate, such as patrol lightbars or sexual dimorphism).
+- Author rich procedural Cycles materials and bake true `2048x2048` maps (`Color` w/ linear raytraced AO -> `sRGB`, OpenGL `Normal`, `Roughness`, `Metalness`, `AO`, `ORM` -> `Non-Color`).
+- Build 3–4 distinct variants where appropriate.
 
 ### Stage 6 — Seam-Locked 4-Tier `LOD0`–`LOD3` & Live Delivery
 - Generate `LOD0` (`100%`), `LOD1` (`~50%`), `LOD2` (`~25%`), and `LOD3` (`~10%`) via `vflib.lod.build_lod_chain()`.
-- Render and **visually inspect**:
-  1. `variants_lineup.png` (all variants un-cropped in studio echelon)
-  2. `baked_closeup.png` (macro proof of baked normal/roughness/AO micro-detail)
-  3. `lod_comparison_sheet.png` (2x2 grid verifying zero seam tearing or inner-wall poke across `LOD0`–`LOD3`)
-  4. Baked `Color` and `Normal` PNG atlases
+- Visually inspect `variants_lineup.png`, `baked_closeup.png`, `lod_comparison_sheet.png`, and (when enabled) `reviews/iteration_progression.png`.
 - Sync final `.blend`, `.glb`, and `blender-render-check.png` to `core.DESIGN_OUTPUT_DIR` and open visibly in Blender when working interactively with a user.
-
-## Reference Flagships in Repo
-- Hard-surface / Naval Vessel: `examples/sunrunner_24/` (`build_hardware_cad.py`, `build_sunrunner_24.py`, `bake_lod_variants.py`)
-- Organic / Pelagic Wildlife + Swim Rig: `examples/mahi_mahi/` (`build_mahi_mahi.py`, `bake_lod_variants.py`)

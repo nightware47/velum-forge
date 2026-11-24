@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "velum-forge"
-version = "1.0.0"
+version = "1.2.0"
 description = "Velum Forge — AI-Driven B-Rep CAD, Blender 5.2+ Cycles PBR Baking, 4-Tier LOD & Game Asset Studio"
 readme = "README.md"
 license = { text = "MIT" }

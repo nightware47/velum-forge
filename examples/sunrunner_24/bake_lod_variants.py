@@ -186,8 +186,22 @@ VARIANTS: list[dict] = [
 
 
 def _enable_cycles_gpu(sc: bpy.types.Scene) -> str:
+    try:
+        from vflib import bake as _vf_bake
+
+        return _vf_bake.enable_cycles_gpu(sc, use_denoising=True)
+    except Exception:
+        pass
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
+    try:
+        sc.render.threads_mode = "FIXED"
+        sc.render.threads = min(8, max(2, (os.cpu_count() or 8) // 2))
+        sc.cycles.use_auto_tile = True
+        sc.cycles.tile_size = 512
+    except Exception:
+        pass
+    backend = "CPU"
     try:
         prefs = bpy.context.preferences.addons["cycles"].preferences
         for dt in ("OPTIX", "CUDA"):
@@ -197,14 +211,26 @@ def _enable_cycles_gpu(sc: bpy.types.Scene) -> str:
                 devs = [d for d in prefs.devices if d.type == dt]
                 if devs:
                     for d in prefs.devices:
-                        d.use = d.type == dt
+                        d.use = (d.type == dt)
                     sc.cycles.device = "GPU"
-                    return dt
+                    backend = dt
+                    break
             except Exception:
                 continue
     except Exception:
         pass
-    return "CPU"
+    if backend == "OPTIX":
+        try:
+            sc.cycles.denoiser = "OPTIX"
+        except Exception:
+            pass
+    elif backend != "CPU":
+        try:
+            sc.cycles.denoiser = "OPENIMAGEDENOISE"
+            sc.cycles.denoising_use_gpu = True
+        except Exception:
+            pass
+    return backend
 
 
 def _srgb_to_lin(hex_str: str) -> tuple[float, float, float]:
@@ -1028,7 +1054,13 @@ import time
 
 
 def _render_still_safe(sc: bpy.types.Scene, dst_path: str) -> str:
-    """Render to local temp dir first, then copy to OneDrive destination with retry so sync locks never fail!"""
+    """Render to local temp dir first, then copy to OneDrive destination with retry & thermal cooldown."""
+    try:
+        from vflib import bake as _vf_bake
+
+        return _vf_bake.render_still_safe(sc, dst_path)
+    except Exception:
+        pass
     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     tmp_p = os.path.join(tempfile.gettempdir(), f"__sc_rnd_{os.path.basename(dst_path)}")
     sc.render.filepath = tmp_p
@@ -1045,6 +1077,7 @@ def _render_still_safe(sc: bpy.types.Scene, dst_path: str) -> str:
         os.remove(tmp_p)
     except OSError:
         pass
+    time.sleep(float(os.environ.get("VELUM_BAKE_COOLDOWN", "1.0") or "1.0"))
     return dst_path
 
 

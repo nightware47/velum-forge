@@ -58,33 +58,44 @@ vforge studio
 
 ---
 
-## Generating Your First 3D Model (With Reference Photos!)
+## Generating Your First 3D Model (Perspective Photos, Blueprints & Optional Rating Reviews!)
 
 ### In the Desktop Studio App (`vforge studio`)
 1. Open **Velum Forge Studio** (`Launch-VelumForge-Studio.cmd` or `vforge studio`) — it opens directly to **`+ Generate 3D Asset`**.
-2. **Step 1:** Enter a name (e.g. `Red Snapper`), pick an archetype (`Fish / Creature`, `Boat / Vehicle`, `Mechanical CAD`, or `Prop`), set real-world length in meters, and describe your model.
-3. **Step 2:** **Drag & drop** reference photos/blueprints (or press **`Ctrl+V`** to paste straight from your clipboard!). Velum Forge automatically extracts the subject's aspect ratio & dominant hex color palette and places `1:1 m` orthographic reference planes inside Blender (`VF_References_ref`).
-4. **Step 3 — Pick how to build:**
-   - **Generate 3D Asset Now (Instant + Ref QA):** Immediately builds a reference-calibrated multi-part `.blend` + `.glb`, renders the 10-view QA sheets + **Side-by-Side Reference vs. Model (`ref_comparison.png`)**, and generates 4 variants + `LOD0`–`LOD3`!
+2. **Step 1:** Enter a name (e.g. `800 Ocean Dr News Cafe` or `Red Snapper`), pick an archetype (`Fish / Creature`, `Architecture / Street Scene`, `Boat / Vehicle`, `Mechanical CAD`, or `Prop`), set real-world meters, and describe your model.
+3. **Step 2 (Perspective-First References):** **Drag & drop** multiple photos/Street Views/blueprints (or press **`Ctrl+V`**).
+   - **Real perspective photos** (`Hero 3/4`, `Street View`, `Close-Up`, `Aerial`) automatically spawn **matched Blender Perspective Cameras (`VF_RefCam_*`)** with real focal lengths (`24mm`–`85mm`) and camera background overlays — producing a **multi-angle side-by-side `ref_comparison.png`** without forcing ortho grids onto perspective shots!
+   - **Orthographic blueprints** (`Ortho Side / Front / Back / Top`) place `1:1 m` orthographic planes and unlock the **opt-in Metric Blueprint Grid** strictly on ortho views.
+4. **Optional Core Feature — Iterative Critic & Honest Rating Loop:** Toggle **`Enable Iterative Visual Critic & Honest Rating Loop`** ON whenever you want multi-pass AAA refinement (configurable Target Rating e.g. `9.0 / 10`, Max Iterations, QA Gate caps, archived per-iteration snapshots, visual `iteration_progression.png`, and 1-click **Next-Iteration Fix Prompts** in Showroom!). Leave OFF for instant single-pass builds.
+5. **Step 3 — Pick how to build:**
+   - **Generate 3D Asset Now (Instant + Ref QA):** Builds a reference-calibrated multi-part `.blend` + `.glb`, renders the 10-view QA sheets + **Multi-Angle Reference vs. Model (`ref_comparison.png`)**, and generates 4 variants + `LOD0`–`LOD3`!
    - **Generate Bespoke via Local AI CLI (`Claude` / `Codex` / `Gemini`):** Drives your installed multimodal AI CLI directly against `references/*` and `asset_spec.json`.
-   - **Stage & Copy Prompt for Antigravity / Cursor:** Stages `references/` + `asset_spec.json` and copies a ready-to-paste prompt to your clipboard so your IDE AI agent builds custom geometry with zero guesswork!
+   - **Stage & Copy Prompt for Antigravity / Cursor:** Stages `references/` + `asset_spec.json` and copies a ready-to-paste prompt to your clipboard (including matched perspective camera instructions and optional Honest Rating loop commands).
 
 ### From the Command Line (`vforge`)
 ```powershell
-# Generate a new 3D asset from reference photo(s) + prompt (auto-renders Ref-vs-Model QA + 4 variants + LOD0-LOD3!):
-vforge generate red_snapper --kind fish --length 0.85 --ref C:\photos\snapper_side.png --prompt "Northern Red Snapper"
+# Generate a new 3D asset from perspective photos + opt-in Iterative Honest Rating Loop:
+vforge generate ocean_dr_800 --kind arch --length 18.0 --ref gsv_front.jpg --ref gsv_corner.jpg --iterate --target-score 9.0 --max-iterations 3
 
-# Attach reference photos to any existing asset & re-run QA with side-by-side Ref-vs-Model comparison:
-vforge add-ref examples\mahi_mahi C:\photos\dorado_ref.jpg
-vforge qa examples\mahi_mahi\build_mahi_mahi.py --forward-axis +Y
+# Toggle or configure Optional Iterative Rating Reviews on any existing asset:
+vforge review config examples\mahi_mahi --enable --target 9.0 --max-iter 3
+vforge review log examples\mahi_mahi --score 7.8 --summary "Strong glazing & silhouette, minor foliage fixes left" --strength "100% outward blue normals" --defect "Botanicals|major|Straight branch cylinders|Replace with curved branching canopy"
+vforge review status examples\mahi_mahi      # Score trajectory + reviews/iteration_progression.png
+vforge review prompt examples\mahi_mahi      # Focused Next-Iteration defect-fix prompt
 
-# Print a complete AI Handoff Prompt for Antigravity, Cursor, or Claude Code:
-vforge brief examples\mahi_mahi
+# Attach perspective photos (or ortho blueprints) & run QA with multi-ref side-by-side comparison:
+vforge add-ref examples\mahi_mahi C:\photos\dorado_ref.jpg --view hero --lens 50
+vforge qa examples\mahi_mahi\build_mahi_mahi.py --forward-axis +Y --snapshot-iteration
+
+# Use --ortho-grid ONLY when verifying flat orthographic blueprints:
+vforge qa path\to\build_blueprint_asset.py --forward-axis +Y --ortho-grid
 
 # Other core commands:
 vforge doctor                                                     # Verify Blender 5.2+, CAD venv & AI skills
 vforge install-ai --workspace C:\path\to\your\game                # Sync Antigravity, Claude & Cursor skills/rules
-vforge bake examples\mahi_mahi\bake_lod_variants.py               # Bake 2K Cycles PBR + variants + LOD0-LOD3
+vforge bake examples\mahi_mahi\bake_lod_variants.py               # Hardware-safe GPU-only 2K PBR + variants + LOD0-LOD3
+# Optional safe bake overrides (safe GPU-only, GPU denoiser, thread cap & sequential GPU lock are automatic):
+# vforge bake <script.py> [--threads 8] [--device auto|gpu|optix|cuda|cpu] [--cooldown 1.0] [--tile-size 512] [--no-lock] [--user-addons]
 vforge studio                                                     # Launch Velum Forge Studio desktop app
 ```
 

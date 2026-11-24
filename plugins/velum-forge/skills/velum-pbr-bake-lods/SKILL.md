@@ -22,6 +22,12 @@ Procedural Blender nodes (`TexNoise`, `TexVoronoi`, `TexWave`, `Bump`, `Mix`) re
    - In background mode (`-b`), `temp_override` alone does not satisfy `bpy.ops.object.mode_set(mode="EDIT")`. Set `ob.select_set(True)` and `bpy.context.view_layer.objects.active = ob` directly on `view_layer` first.
 5. **Cloud / OneDrive Sync File-Lock Immunity:**
    - Writing Cycles renders or PNG textures directly into a synced folder (`OneDrive`, `Dropbox`) intermittently fails with `OpenImageIO write failed`. Always render/save to `tempfile.gettempdir()` first and copy with retry (`vflib.bake.render_still_safe` & `vflib.bake.save_png_8bit`).
+6. **Hardware-Safe Cycles GPU-Only & GPU Denoising (Never Hybrid GPU + All-Core CPU!):**
+   - Never write `for d in prefs.devices: d.use = True` — that enables both GPU and all CPU cores simultaneously! Always call **`vflib.bake.enable_cycles_gpu(sc)`**, which enforces strictly GPU-only (`d.use = (d.type == dev_type)`), GPU denoising (`OPTIX` or `OPENIMAGEDENOISE` with `denoising_use_gpu = True`), capped CPU threads (`FIXED` <= `8`), `512 px` tiling, and `1.0 s` thermal cooldown between heavy passes.
+   - `vforge bake` automatically applies `--factory-startup`, `-t 8`, safe Cycles env vars, and a sequential cross-process GPU lock so overlapping bakes never spike your GPU/PSU:
+     ```powershell
+     vforge bake <script.py> [--threads 8] [--device auto|gpu|optix|cuda|cpu] [--cooldown 1.0] [--tile-size 512] [--no-lock] [--user-addons]
+     ```
 
 ## Standard 6-Map `2048x2048` Output Set
 | Map | Filename | Color Space | Bake Pass |

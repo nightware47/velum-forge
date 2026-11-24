@@ -1,4 +1,4 @@
-"""Velum Forge Studio — Local Desktop App Backend, Reference Manager & Live Generation Runner."""
+"""Velum Forge Studio — Local Desktop App Backend, Reference Manager, Optional Review Loop & Live Runner."""
 from __future__ import annotations
 
 import json
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from . import CAD_ENGINE_DIR, EXAMPLES_DIR, PLUGIN_SRC_DIR, REPO_ROOT, UI_DIR
+from .bake_guard import build_safe_blender_bake_cmd, build_safe_cycles_env, default_safe_threads, gpu_bake_lock
 from .doctor import (
     find_blender_exe,
     find_venv_python,
@@ -33,7 +34,17 @@ from .generator import (
     generate_parametric_scripts,
     slugify,
 )
-from .references import analyze_reference_image, save_uploaded_reference
+from .references import analyze_reference_image, save_uploaded_reference, sync_references_into_spec
+from .review import (
+    build_next_iteration_prompt,
+    find_latest_qa_report,
+    get_review_config,
+    load_review_history,
+    record_iteration_review,
+    score_qa_report,
+    set_review_config,
+    snapshot_iteration_renders,
+)
 from .scaffold import scaffold_asset
 
 _JOBS_LOCK = threading.Lock()
@@ -82,7 +93,7 @@ def _is_safe_local_file(p: Path) -> bool:
 
 
 def discover_assets() -> list[dict[str, Any]]:
-    """Scan configured asset roots and assemble rich metadata, references, renders, PBR maps & LODs."""
+    """Scan configured asset roots and assemble metadata, references, renders, QA, reviews, PBR & LODs."""
     assets: list[dict[str, Any]] = []
     seen_dirs: set[Path] = set()
 
@@ -132,17 +143,51 @@ def discover_assets() -> list[dict[str, Any]]:
                 except Exception:
                     pass
 
-            # Collect reference images
+            qa_file = find_latest_qa_report(rsub)
+            qa_raw: dict[str, Any] | None = None
+            if qa_file and qa_file.is_file():
+                try:
+                    qa_raw = json.loads(qa_file.read_text(encoding="utf-8-sig"))
+                except Exception:
+                    qa_raw = None
+            review_cfg = get_review_config(rsub)
+            qa_summary = score_qa_report(qa_raw, review_cfg)
+            review_history = load_review_history(rsub)
+
+            # Collect reference images (with perspective vs ortho metadata)
+            spec_ref_by_name = {
+                str(r.get("filename") or Path(r.get("path", "")).name).lower(): r
+                for r in (spec_data.get("references") or [])
+            }
             ref_images: list[dict[str, Any]] = []
             ref_dir = sub / "references"
             if ref_dir.is_dir():
                 for rf in sorted(ref_dir.iterdir()):
                     if rf.is_file() and rf.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
-                        ref_images.append({"label": f"Ref: {rf.stem}", "path": str(rf.resolve())})
+                        meta = spec_ref_by_name.get(rf.name.lower(), {})
+                        proj = meta.get("projection", "perspective")
+                        vw = meta.get("view", "hero")
+                        tag = "ORTHO" if proj == "ortho_blueprint" else "PERSP"
+                        ref_images.append(
+                            {
+                                "label": f"Ref [{tag}]: {rf.stem}",
+                                "path": str(rf.resolve()),
+                                "view": vw,
+                                "projection": proj,
+                                "camera": meta.get("camera") or {},
+                            }
+                        )
 
-            # Collect preview / render / QA / ref_comparison images (prioritize ref_comparison & lineup!)
+            # Collect renders, QA sheets, progression sheet & previews
             images: list[dict[str, str]] = []
             seen_imgs: set[Path] = set()
+
+            prog_sheet = sub / "reviews" / "iteration_progression.png"
+            if prog_sheet.is_file():
+                rp = prog_sheet.resolve()
+                seen_imgs.add(rp)
+                images.append({"label": "Iteration Progression", "path": str(rp)})
+
             for img_dir_name in ("renders", "previews"):
                 idir = sub / img_dir_name
                 if idir.is_dir():
@@ -150,18 +195,31 @@ def discover_assets() -> list[dict[str, Any]]:
                         rim = im.resolve()
                         if rim not in seen_imgs:
                             seen_imgs.add(rim)
-                            lbl = "Ref vs Model" if im.stem == "ref_comparison" else im.stem.replace("_", " ").title()
+                            if im.stem == "ref_comparison":
+                                lbl = "Ref vs Model"
+                            elif im.stem == "iteration_progression":
+                                continue
+                            elif im.stem.startswith("refcam_"):
+                                lbl = "Matched " + im.stem.replace("_", " ").title()
+                            else:
+                                lbl = im.stem.replace("_", " ").title()
                             images.append({"label": lbl, "path": str(rim)})
             if not images and (sub / "preview.png").is_file():
                 images.append({"label": "Preview", "path": str((sub / "preview.png").resolve())})
 
-            # Put ref_comparison & variants_lineup at the front of thumbnails!
-            images.sort(
-                key=lambda item: (
-                    0 if "ref vs model" in item["label"].lower() else (1 if "lineup" in item["label"].lower() else 2),
-                    item["label"],
-                )
-            )
+            def _img_rank(item: dict[str, str]) -> tuple[int, str]:
+                lo_l = item["label"].lower()
+                if "iteration progression" in lo_l:
+                    return (0, item["label"])
+                if "ref vs model" in lo_l:
+                    return (1, item["label"])
+                if "lineup" in lo_l:
+                    return (2, item["label"])
+                if "matched refcam" in lo_l:
+                    return (3, item["label"])
+                return (4, item["label"])
+
+            images.sort(key=_img_rank)
 
             pbr_maps: list[dict[str, str]] = []
             tex_root = sub / "textures"
@@ -172,7 +230,11 @@ def discover_assets() -> list[dict[str, Any]]:
                     pbr_maps.append({"label": mp.stem.split("_")[-1], "path": str(mp.resolve())})
 
             hero_img = next(
-                (i["path"] for i in images if "lineup" in i["label"].lower() or "ref vs model" in i["label"].lower()),
+                (
+                    i["path"]
+                    for i in images
+                    if any(k in i["label"].lower() for k in ("iteration progression", "ref vs model", "lineup"))
+                ),
                 images[0]["path"] if images else (ref_images[0]["path"] if ref_images else None),
             )
 
@@ -181,7 +243,9 @@ def discover_assets() -> list[dict[str, Any]]:
                     "id": f"{source_label}:{sub.name}",
                     "name": sub.name,
                     "title": spec_data.get("title") or sub.name.replace("_", " ").title(),
+                    "kind": spec_data.get("kind") or "prop",
                     "prompt": spec_data.get("prompt") or "",
+                    "ortho_blueprint_grid": bool(spec_data.get("ortho_blueprint_grid", False)),
                     "extracted_palette": spec_data.get("extracted_palette") or [],
                     "source": source_label,
                     "dir": str(rsub),
@@ -190,17 +254,27 @@ def discover_assets() -> list[dict[str, Any]]:
                     "blend_file": str(main_blend.resolve()) if main_blend else None,
                     "has_variants_report": bool(report_data),
                     "report": report_data,
+                    "qa_summary": qa_summary,
+                    "review_loop": review_cfg,
+                    "review_history": review_history,
                     "hero_image": hero_img,
                     "images": images,
                     "references": ref_images,
                     "pbr_maps": pbr_maps,
                     "handoff_prompt": build_agent_handoff_prompt(rsub),
+                    "next_iteration_prompt": build_next_iteration_prompt(rsub),
                 }
             )
     return assets
 
 
-def _start_chained_job(title: str, steps: list[tuple[str, list[str], str]]) -> str:
+def _start_chained_job(
+    title: str,
+    steps: list[tuple[str, list[str], str]],
+    *,
+    use_gpu_lock: bool = False,
+    env_override: dict[str, str] | None = None,
+) -> str:
     """Run one or more sequential pipeline commands in a background thread with live log streaming."""
     jid = uuid.uuid4().hex[:10]
     job = {
@@ -214,32 +288,38 @@ def _start_chained_job(title: str, steps: list[tuple[str, list[str], str]]) -> s
     with _JOBS_LOCK:
         _JOBS[jid] = job
 
+    def _log_line(msg: str) -> None:
+        with _JOBS_LOCK:
+            _JOBS[jid]["logs"] += msg + "\n"
+
     def _worker() -> None:
         rc = 0
         try:
-            for idx, (step_name, cmd, cwd) in enumerate(steps, 1):
-                with _JOBS_LOCK:
-                    _JOBS[jid]["logs"] += f"\n--- Step {idx}/{len(steps)}: {step_name} ---\n$ {' '.join(cmd)}\n\n"
-                proc = subprocess.Popen(
-                    cmd,
-                    cwd=cwd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                assert proc.stdout is not None
-                for line in proc.stdout:
+            with gpu_bake_lock(enabled=use_gpu_lock, label=title, log_fn=_log_line):
+                for idx, (step_name, cmd, cwd) in enumerate(steps, 1):
                     with _JOBS_LOCK:
-                        _JOBS[jid]["logs"] += line
-                rc = proc.wait()
-                if rc != 0:
-                    with _JOBS_LOCK:
-                        _JOBS[jid]["exit_code"] = rc
-                        _JOBS[jid]["status"] = "failed"
-                        _JOBS[jid]["logs"] += f"\n[Velum Forge] Step '{step_name}' exited with code {rc}.\n"
-                    return
+                        _JOBS[jid]["logs"] += f"\n--- Step {idx}/{len(steps)}: {step_name} ---\n$ {' '.join(cmd)}\n\n"
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=cwd,
+                        env=env_override,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    assert proc.stdout is not None
+                    for line in proc.stdout:
+                        with _JOBS_LOCK:
+                            _JOBS[jid]["logs"] += line
+                    rc = proc.wait()
+                    if rc != 0:
+                        with _JOBS_LOCK:
+                            _JOBS[jid]["exit_code"] = rc
+                            _JOBS[jid]["status"] = "failed"
+                            _JOBS[jid]["logs"] += f"\n[Velum Forge] Step '{step_name}' exited with code {rc}.\n"
+                        return
             with _JOBS_LOCK:
                 _JOBS[jid]["exit_code"] = 0
                 _JOBS[jid]["status"] = "done"
@@ -254,10 +334,17 @@ def _start_chained_job(title: str, steps: list[tuple[str, list[str], str]]) -> s
     return jid
 
 
-def _build_qa_cmd(asset_path: str, profile: str = "roblox", fwd: str = "+Y") -> list[str]:
+def _build_qa_cmd(
+    asset_path: str,
+    profile: str = "roblox",
+    fwd: str = "+Y",
+    *,
+    ortho_grid: bool = False,
+    snapshot_iteration: bool = False,
+) -> list[str]:
     if platform.system() == "Windows":
         ps_exe = shutil.which("powershell") or "powershell.exe"
-        return [
+        cmd = [
             ps_exe,
             "-NoProfile",
             "-ExecutionPolicy",
@@ -271,25 +358,19 @@ def _build_qa_cmd(asset_path: str, profile: str = "roblox", fwd: str = "+Y") -> 
             "-ForwardAxis",
             fwd,
         ]
-    blender_exe = find_blender_exe() or "blender"
-    out_d = str(REPO_ROOT / ".qa-out" / Path(asset_path).stem)
-    return [
-        blender_exe,
-        "-b",
-        "--python-exit-code",
-        "1",
-        "-P",
-        str(REPO_ROOT / "engine" / "blender" / "qa_pipeline.py"),
-        "--",
-        "--input",
-        asset_path,
-        "--out-dir",
-        out_d,
-        "--profile",
-        profile,
-        "--forward-axis",
-        fwd,
-    ]
+        if ortho_grid:
+            cmd.append("-OrthoGrid")
+        if snapshot_iteration:
+            cmd.append("-SnapshotIteration")
+        return cmd
+
+    py = find_venv_python()
+    cmd = [py, "-m", "velum_forge.cli", "qa", asset_path, "--profile", profile, "--forward-axis", fwd]
+    if ortho_grid:
+        cmd.append("--ortho-grid")
+    if snapshot_iteration:
+        cmd.append("--snapshot-iteration")
+    return cmd
 
 
 def _load_skills_catalog() -> list[dict[str, str]]:
@@ -353,6 +434,22 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json({"skills": _load_skills_catalog()})
             return
 
+        if route == "/api/review/history":
+            ad = (qs.get("asset_dir") or [""])[0]
+            if not ad or not Path(ad).is_dir():
+                self._send_json({"error": "Asset directory not found"}, status=404)
+                return
+            self._send_json(load_review_history(ad))
+            return
+
+        if route == "/api/review/prompt":
+            ad = (qs.get("asset_dir") or [""])[0]
+            if not ad or not Path(ad).is_dir():
+                self._send_json({"error": "Asset directory not found"}, status=404)
+                return
+            self._send_json({"ok": True, "prompt": build_next_iteration_prompt(ad)})
+            return
+
         if route == "/api/jobs":
             jid = (qs.get("id") or [""])[0]
             with _JOBS_LOCK:
@@ -391,27 +488,31 @@ class StudioHandler(BaseHTTPRequestHandler):
             prompt = str(body.get("prompt") or title).strip()
             length_m = float(body.get("length_m") or 1.20)
             engine = str(body.get("engine") or "parametric")
+            ortho_grid = bool(body.get("ortho_blueprint_grid", False))
+            review_loop = body.get("review_loop") if isinstance(body.get("review_loop"), dict) else None
             parent_dir = Path(str(body.get("parent_dir") or EXAMPLES_DIR)).resolve()
             asset_dir = parent_dir / slug
             asset_dir.mkdir(parents=True, exist_ok=True)
 
-            # 1. Stage & analyze uploaded reference images!
             staged_refs: list[dict[str, Any]] = []
             for r_item in body.get("references") or []:
                 fn = str(r_item.get("filename") or "ref.png")
                 vw = str(r_item.get("view") or "auto")
+                proj = str(r_item.get("projection") or "auto")
+                lens_val = r_item.get("lens_mm")
+                lens_mm = float(lens_val) if lens_val not in (None, "", 0, "auto") else None
                 durl = str(r_item.get("data_url") or "")
                 if durl:
-                    staged_refs.append(save_uploaded_reference(asset_dir, fn, durl, view=vw))
+                    staged_refs.append(
+                        save_uploaded_reference(asset_dir, fn, durl, view=vw, projection=proj, lens_mm=lens_mm)
+                    )
 
-            # Also keep any existing references already in `<asset_dir>/references/`
             ref_sub = asset_dir / "references"
             if ref_sub.is_dir() and not staged_refs:
                 for rf in sorted(ref_sub.iterdir()):
                     if rf.is_file() and rf.suffix.lower() in (".png", ".jpg", ".jpeg"):
                         staged_refs.append(analyze_reference_image(rf))
 
-            # 2. Generate reference-calibrated baseline scripts + asset_spec.json
             created = generate_parametric_scripts(
                 asset_dir,
                 slug=slug,
@@ -420,6 +521,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 prompt=prompt,
                 length_m=length_m,
                 references=staged_refs,
+                ortho_blueprint_grid=ortho_grid,
+                review_loop=review_loop,
             )
             handoff = build_agent_handoff_prompt(asset_dir)
 
@@ -451,13 +554,35 @@ class StudioHandler(BaseHTTPRequestHandler):
                     )
                     return
                 build_script = created["build_script"]
-                steps.append(("10-View Visual & Reference Comparison QA Gate", _build_qa_cmd(build_script, "roblox", "+Y"), str(REPO_ROOT)))
+                iter_enabled = bool((review_loop or {}).get("enabled", False))
+                steps.append(
+                    (
+                        "10-View Visual & Multi-Ref QA Gate",
+                        _build_qa_cmd(
+                            build_script,
+                            "roblox",
+                            "+Y",
+                            ortho_grid=ortho_grid,
+                            snapshot_iteration=iter_enabled,
+                        ),
+                        str(REPO_ROOT),
+                    )
+                )
                 if created.get("bake_script") and blender_exe:
                     steps.append(
-                        ("4-Variant Showcase + LOD0-LOD3 Build", [blender_exe, "-b", "--python-exit-code", "1", "-P", created["bake_script"]], str(asset_dir))
+                        (
+                            "4-Variant Showcase + LOD0-LOD3 Build (Safe GPU-Only)",
+                            build_safe_blender_bake_cmd(blender_exe, created["bake_script"]),
+                            str(asset_dir),
+                        )
                     )
 
-            jid = _start_chained_job(f"Generate 3D Asset: {title}", steps)
+            jid = _start_chained_job(
+                f"Generate 3D Asset: {title}",
+                steps,
+                use_gpu_lock=(engine == "parametric"),
+                env_override=build_safe_cycles_env(),
+            )
             self._send_json({"ok": True, "job_id": jid, "slug": slug, "created": created, "handoff_prompt": handoff})
             return
 
@@ -470,10 +595,74 @@ class StudioHandler(BaseHTTPRequestHandler):
             for r_item in body.get("references") or []:
                 fn = str(r_item.get("filename") or "ref.png")
                 vw = str(r_item.get("view") or "auto")
+                proj = str(r_item.get("projection") or "auto")
+                lens_val = r_item.get("lens_mm")
+                lens_mm = float(lens_val) if lens_val not in (None, "", 0, "auto") else None
                 durl = str(r_item.get("data_url") or "")
                 if durl:
-                    added.append(save_uploaded_reference(target_dir, fn, durl, view=vw))
+                    added.append(save_uploaded_reference(target_dir, fn, durl, view=vw, projection=proj, lens_mm=lens_mm))
+            sync_references_into_spec(target_dir, added)
             self._send_json({"ok": True, "added": added, "handoff_prompt": build_agent_handoff_prompt(target_dir)})
+            return
+
+        if route == "/api/review/config":
+            target_dir = Path(str(body.get("asset_dir") or "")).resolve()
+            if not target_dir.is_dir():
+                self._send_json({"ok": False, "error": "Asset directory not found"}, status=404)
+                return
+            cfg = set_review_config(
+                target_dir,
+                enabled=body.get("enabled"),
+                target_score=body.get("target_score"),
+                max_iterations=body.get("max_iterations"),
+                require_zero_qa_errors=body.get("require_zero_qa_errors"),
+                require_zero_qa_warnings=body.get("require_zero_qa_warnings"),
+                focus_notes=body.get("focus_notes"),
+            )
+            self._send_json(
+                {
+                    "ok": True,
+                    "config": cfg,
+                    "handoff_prompt": build_agent_handoff_prompt(target_dir),
+                    "next_iteration_prompt": build_next_iteration_prompt(target_dir),
+                }
+            )
+            return
+
+        if route == "/api/review/snapshot":
+            target_dir = Path(str(body.get("asset_dir") or "")).resolve()
+            if not target_dir.is_dir():
+                self._send_json({"ok": False, "error": "Asset directory not found"}, status=404)
+                return
+            snap = snapshot_iteration_renders(target_dir, iteration=body.get("iteration"))
+            self._send_json({"ok": True, "snapshot": snap})
+            return
+
+        if route == "/api/review/log":
+            target_dir = Path(str(body.get("asset_dir") or "")).resolve()
+            if not target_dir.is_dir():
+                self._send_json({"ok": False, "error": "Asset directory not found"}, status=404)
+                return
+            rating_val = body.get("honest_rating")
+            entry = record_iteration_review(
+                target_dir,
+                honest_rating=float(rating_val) if rating_val not in (None, "") else None,
+                rubric_scores=body.get("rubric_scores") if isinstance(body.get("rubric_scores"), dict) else None,
+                summary=str(body.get("summary") or ""),
+                strengths=body.get("strengths") or [],
+                defects=body.get("defects") or [],
+                snapshot_renders=bool(body.get("snapshot_renders", True)),
+                iteration=body.get("iteration"),
+                notes=str(body.get("notes") or ""),
+            )
+            self._send_json(
+                {
+                    "ok": True,
+                    "entry": entry,
+                    "history": load_review_history(target_dir),
+                    "next_iteration_prompt": build_next_iteration_prompt(target_dir),
+                }
+            )
             return
 
         if route == "/api/install-ai":
@@ -543,9 +732,17 @@ class StudioHandler(BaseHTTPRequestHandler):
             asset_path = str(body.get("path") or "")
             profile = str(body.get("profile") or "roblox")
             fwd = str(body.get("forward_axis") or "+Y")
+            ortho_grid = bool(body.get("ortho_grid", False))
+            snap_iter = bool(body.get("snapshot_iteration", False))
             jid = _start_chained_job(
-                f"10-View QA + Ref Comparison ({Path(asset_path).name})",
-                [("Run 10-View QA", _build_qa_cmd(asset_path, profile, fwd), str(REPO_ROOT))],
+                f"10-View QA + Multi-Ref Comparison ({Path(asset_path).name})",
+                [
+                    (
+                        "Run 10-View QA",
+                        _build_qa_cmd(asset_path, profile, fwd, ortho_grid=ortho_grid, snapshot_iteration=snap_iter),
+                        str(REPO_ROOT),
+                    )
+                ],
             )
             self._send_json({"ok": True, "job_id": jid})
             return
@@ -556,9 +753,23 @@ class StudioHandler(BaseHTTPRequestHandler):
             if not blender_exe or not Path(bake_path).is_file():
                 self._send_json({"ok": False, "error": "Blender 5.2+ or bake script not found"}, status=400)
                 return
+            threads = body.get("threads")
+            device = str(body.get("device") or "auto")
+            cooldown = float(body.get("cooldown") if body.get("cooldown") is not None else 1.0)
+            tile_size = int(body.get("tile_size") if body.get("tile_size") is not None else 512)
+            user_addons = bool(body.get("user_addons", False))
+            no_lock = bool(body.get("no_lock", False))
             jid = _start_chained_job(
                 f"2K Cycles PBR Bake + Variants + LODs ({Path(bake_path).parent.name})",
-                [("Cycles PBR Bake & LODs", [blender_exe, "-b", "--python-exit-code", "1", "-P", bake_path], str(Path(bake_path).parent))],
+                [
+                    (
+                        "Cycles PBR Bake & LODs (Safe GPU-Only)",
+                        build_safe_blender_bake_cmd(blender_exe, bake_path, threads=threads, user_addons=user_addons),
+                        str(Path(bake_path).parent),
+                    )
+                ],
+                use_gpu_lock=not no_lock,
+                env_override=build_safe_cycles_env(threads=threads, device=device, cooldown=cooldown, tile_size=tile_size),
             )
             self._send_json({"ok": True, "job_id": jid})
             return
@@ -575,7 +786,7 @@ def _open_native_app_window(url: str) -> None:
         ]
         for exe in app_browsers:
             if exe.is_file():
-                subprocess.Popen([str(exe), f"--app={url}", "--window-size=1480,940"])
+                subprocess.Popen([str(exe), f"--app={url}", "--window-size=1520,960"])
                 return
     webbrowser.open(url)
 

@@ -1,26 +1,30 @@
-# CLAUDE.md — Claude Code Instructions for Velum Forge
+# CLAUDE.md — Claude Code Instructions for Velum Forge (v1.2)
 
 Follow all rules in [`AGENTS.md`](AGENTS.md) and [`docs/AI_AGENT_PLAYBOOK.md`](docs/AI_AGENT_PLAYBOOK.md).
 
 ## Quick Commands (`vforge`)
 
 ```bash
-# 1. Generate a brand-new 3D asset from a prompt + reference image(s) (extracts palette, builds 3D + Ref-vs-Model QA!)
-vforge generate red_snapper --kind fish --length 0.85 --ref ./snapper_side.png --prompt "Crimson Red Snapper"
+# 1. Generate a 3D asset from perspective photos or blueprints (opt-in --iterate enables Honest Rating Reviews!)
+vforge generate ocean_dr_800 --kind arch --length 18.0 --ref ./gsv_front.jpg --ref ./gsv_corner.jpg --iterate --target-score 9.0
 
-# 2. Attach additional reference photos to an existing asset folder or print an AI Handoff Brief
-vforge add-ref examples/mahi_mahi ./mahi_photo.jpg
+# 2. Attach perspective photos (or ortho blueprints) to an existing asset & print AI Handoff / Next-Iter Fix Brief
+vforge add-ref examples/mahi_mahi ./mahi_photo.jpg --view hero --lens 50
 vforge brief examples/mahi_mahi
+vforge brief examples/mahi_mahi --next-iteration
 
-# 3. Check Blender 5.2+, CAD Python venv & installed AI skills
+# 3. Optional Iterative Critic & Honest Rating Loop (`vforge review`)
+vforge review config examples/mahi_mahi --enable --target 9.0 --max-iter 3
+vforge review snapshot examples/mahi_mahi
+vforge review log examples/mahi_mahi --score 7.8 --summary "Strong progress, not 10/10 yet." --strength "Crisp silhouette" --defect "Detail|major|Missing trim|Add beveled molding"
+vforge review status examples/mahi_mahi
+vforge review prompt examples/mahi_mahi
+
+# 4. Run 10-view QA + matched perspective multi-ref comparison (use --ortho-grid ONLY for ortho blueprints!)
+vforge qa examples/mahi_mahi/build_mahi_mahi.py --profile roblox --forward-axis +Y --snapshot-iteration
+
+# 5. Check Blender 5.2+, sync AI skills, and bake 2K PBR + variants + LODs (hardware-safe defaults automatic!)
 vforge doctor
-
-# 4. Install/sync skills into ~/.claude/skills and ~/.gemini/config/plugins/velum-forge
 vforge install-ai
-
-# 5. Run the 10-view QA gate + automatic side-by-side `renders/ref_comparison.png`
-vforge qa examples/mahi_mahi/build_mahi_mahi.py --profile roblox --forward-axis +Y
-
-# 6. Run headless Blender 5.2+ 2048x2048 Cycles GPU PBR bake + 4 variants + 4-tier LODs
-vforge bake examples/mahi_mahi/bake_lod_variants.py
+vforge bake examples/mahi_mahi/bake_lod_variants.py [--threads 8] [--device auto|gpu|optix|cuda|cpu] [--cooldown 1.0] [--tile-size 512] [--no-lock] [--user-addons]
 ```

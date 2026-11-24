@@ -2919,25 +2919,42 @@ def render_closeup_verification_views(meshes: list[bpy.types.Object], out_dir: s
     saved_cam = sc.camera
 
     studio_col = render.setup_studio(meshes, backdrop="product")
-    sc.render.engine = "CYCLES"
-    sc.cycles.samples = 96
-    sc.cycles.use_denoising = True
     try:
-        prefs = bpy.context.preferences.addons["cycles"].preferences
-        for dt in ("OPTIX", "CUDA"):
-            try:
-                prefs.compute_device_type = dt
-                prefs.get_devices()
-                devs = [d for d in prefs.devices if d.type == dt]
-                if devs:
-                    for d in prefs.devices:
-                        d.use = d.type == dt
-                    sc.cycles.device = "GPU"
-                    break
-            except Exception:
-                continue
+        from vflib import bake as _vf_bake
+
+        _vf_bake.enable_cycles_gpu(sc, use_denoising=True)
     except Exception:
-        pass
+        sc.render.engine = "CYCLES"
+        sc.cycles.use_denoising = True
+        try:
+            sc.render.threads_mode = "FIXED"
+            sc.render.threads = min(8, max(2, (os.cpu_count() or 8) // 2))
+            sc.cycles.use_auto_tile = True
+            sc.cycles.tile_size = 512
+        except Exception:
+            pass
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            for dt in ("OPTIX", "CUDA"):
+                try:
+                    prefs.compute_device_type = dt
+                    prefs.get_devices()
+                    devs = [d for d in prefs.devices if d.type == dt]
+                    if devs:
+                        for d in prefs.devices:
+                            d.use = (d.type == dt)
+                        sc.cycles.device = "GPU"
+                        if dt == "OPTIX":
+                            sc.cycles.denoiser = "OPTIX"
+                        else:
+                            sc.cycles.denoiser = "OPENIMAGEDENOISE"
+                            sc.cycles.denoising_use_gpu = True
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    sc.cycles.samples = 96
 
     sc.render.resolution_x = 1600
     sc.render.resolution_y = 1000

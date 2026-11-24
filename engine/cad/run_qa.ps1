@@ -24,6 +24,12 @@ param(
 
     [switch]$Fast,
     [string]$Ref = "",
+    [switch]$OrthoGrid,
+    [switch]$SnapshotIteration,
+    [int]$Threads = 0,
+    [ValidateSet("auto", "gpu", "optix", "cuda", "cpu")]
+    [string]$Device = "auto",
+    [switch]$UserAddons,
     [switch]$KeepTiles,
     [switch]$NoFailExit,
 
@@ -110,9 +116,24 @@ function Invoke-NativeQuiet {
     }
 }
 
+$AssetParentDir = Split-Path $AssetPath -Parent
+$AutoSpecPath = Join-Path $AssetParentDir "asset_spec.json"
+$AutoRefDir = Join-Path $AssetParentDir "references"
+$AutoReviewHist = Join-Path $AssetParentDir "reviews\review_history.json"
+
+$SafeThreads = if ($Threads -gt 0) { $Threads } else { [Math]::Min(8, [Math]::Max(2, [int]([Environment]::ProcessorCount / 2))) }
+$env:VELUM_BLENDER_THREADS = "$SafeThreads"
+$env:VELUM_CYCLES_DEVICE = "$Device"
+$env:OMP_NUM_THREADS = "$SafeThreads"
+$env:TBB_NUM_THREADS = "$SafeThreads"
+
 $BlenderArgs = @("-b")
+if (-not $UserAddons) { $BlenderArgs += "--factory-startup" }
+$BlenderArgs += @("-t", "$SafeThreads")
 $PipelineArgs = @("--out-dir", $OutDir, "--profile", $Profile, "--renderer", $Renderer, "--asset-name", $AssetStem, "--forward-axis", $ForwardAxis)
 if ($Fast) { $PipelineArgs += "--fast" }
+if ($OrthoGrid) { $PipelineArgs += "--ortho-grid" }
+if (Test-Path -LiteralPath $AutoSpecPath) { $PipelineArgs += @("--spec", $AutoSpecPath) }
 if (-not [string]::IsNullOrWhiteSpace($Collection)) { $PipelineArgs += @("--collection", $Collection) }
 if (@($Objects).Count -gt 0) { $PipelineArgs += "--objects"; $PipelineArgs += $Objects }
 
@@ -170,36 +191,43 @@ $ComposeArgs = @(
     "--manifest", $ManifestJson,
     "--qa-json", $QaJson,
     "--out-material", $OutMaterial,
-    "--out-diagnostic", $OutDiagnostic
+    "--out-diagnostic", $OutDiagnostic,
+    "--out-ref", $OutRef
 )
+if ($OrthoGrid) { $ComposeArgs += "--ortho-grid" }
+if (Test-Path -LiteralPath $AutoReviewHist) { $ComposeArgs += @("--review-history", $AutoReviewHist) }
 if (-not [string]::IsNullOrWhiteSpace($Ref)) {
     $RefPath = (Resolve-Path $Ref).Path
-    $ComposeArgs += @("--ref", $RefPath, "--out-ref", $OutRef)
-} else {
-    # Auto-detect reference image inside <asset_dir>/references/ if present!
-    $AutoRefDir = Join-Path (Split-Path $AssetPath -Parent) "references"
-    if (Test-Path $AutoRefDir) {
-        $FirstRef = Get-ChildItem -Path $AutoRefDir -Include "*.png","*.jpg","*.jpeg" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($FirstRef) {
-            $Ref = $FirstRef.FullName
-            $ComposeArgs += @("--ref", $Ref, "--out-ref", $OutRef)
-        }
-    }
+    $ComposeArgs += @("--ref", $RefPath)
+}
+if (Test-Path -LiteralPath $AutoRefDir) {
+    $ComposeArgs += @("--ref-dir", $AutoRefDir)
 }
 
-Write-Host "[vforge-qa] Composing labeled contact sheets..." -ForegroundColor Cyan
+Write-Host "[vforge-qa] Composing labeled contact sheets & multi-angle reference comparisons..." -ForegroundColor Cyan
 $ecCompose = Invoke-NativeQuiet $CadPython $ComposeArgs
 if ($ecCompose -ne 0) { throw "Contact sheet composition failed." }
 
-# Mirror QA contact sheets (+ ref_comparison.png) into <asset_dir>/renders/ so Studio UI shows them immediately!
-$AssetRendersDir = Join-Path (Split-Path $AssetPath -Parent) "renders"
-if (Test-Path (Split-Path $AssetPath -Parent)) {
+# Mirror QA contact sheets, qa_report.json, matched perspective cameras (+ ref_comparison.png) into <asset_dir>/renders/!
+$AssetRendersDir = Join-Path $AssetParentDir "renders"
+if (Test-Path -LiteralPath $AssetParentDir) {
     New-Item -ItemType Directory -Force -Path $AssetRendersDir | Out-Null
     Copy-Item -LiteralPath $OutMaterial -Destination (Join-Path $AssetRendersDir "qa_contact_material.png") -Force -ErrorAction SilentlyContinue
     Copy-Item -LiteralPath $OutDiagnostic -Destination (Join-Path $AssetRendersDir "qa_contact_diagnostic.png") -Force -ErrorAction SilentlyContinue
-    if (Test-Path $OutRef) {
+    Copy-Item -LiteralPath $QaJson -Destination (Join-Path $AssetRendersDir "qa_report.json") -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $OutRef) {
         Copy-Item -LiteralPath $OutRef -Destination (Join-Path $AssetRendersDir "ref_comparison.png") -Force -ErrorAction SilentlyContinue
     }
+    Get-ChildItem -Path $OutDir -Filter "tile_refcam_*.png" -ErrorAction SilentlyContinue | ForEach-Object {
+        $dstName = $_.Name -replace "^tile_", ""
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $AssetRendersDir $dstName) -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($SnapshotIteration -and (Test-Path -LiteralPath $AssetParentDir)) {
+    Write-Host "[vforge-qa] Archiving iteration render snapshot into reviews/..." -ForegroundColor Cyan
+    $snapPy = "import sys, json; sys.path.insert(0, r'$RepoRoot'); from velum_forge.review import snapshot_iteration_renders; print(json.dumps(snapshot_iteration_renders(r'$AssetParentDir')))"
+    Invoke-NativeQuiet $CadPython @("-c", $snapPy) | Out-Null
 }
 
 if (-not $KeepTiles) {

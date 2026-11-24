@@ -14,6 +14,8 @@ This playbook teaches any AI coding/3D agent (**Google Antigravity**, **Claude C
 | **Materials exporting blank grey to glTF / Roblox** | Procedural Blender nodes (`Noise`, `Voronoi`, `Wave`, `Bump`, `Mix`) are ignored by game exporters | Bake procedural shaders in Cycles GPU (`OPTIX`) onto a non-overlapping `2048x2048` UV atlas (`Color`, OpenGL `Normal`, `Roughness`, `Metalness`, `AO`, `ORM`) and wire `ShaderNodeTexImage` directly to `Principled BSDF`. |
 | **Stair-stepped painted stripes on shared UV atlases** | `uv.smart_project` merges coplanar faces across material boundaries, causing diagonal pixel aliasing | Split multi-material edges BEFORE `smart_project` + `pack_islands`, bake with `12–14 px` `EXTEND` margin, and re-weld 3D vertices (`remove_doubles`) afterward (`vflib.bake.split_material_border_uv_islands`). |
 | **Torn stripes or inner-liner poke-through on LODs** | Unconstrained `COLLAPSE` decimation collapses across UV seams and flattens curved outer shells into inner liners | Mark UV seams (`seams_from_islands`), set `dec.delimit = {'UV', 'SEAM', 'SHARP'}`, use `DISSOLVE` (`1.8°–3.4°`) on double-walled shells, and push thin exterior decal bands outboard by `+3..+13 mm` (`vflib.lod`). |
+| **Perspective photos broken by ortho blueprint grids** | Parking real Street View / 3/4 perspective photos onto flat ortho planes causes foreshortening & lens mismatch | Separate **`perspective`** references (matched `VF_RefCam_*` Blender perspective cameras with real `lens_mm` + camera background overlay) from **`ortho_blueprint`** references (1:1m ortho planes + opt-in `--ortho-grid`). |
+| **Premature "looks great" / grade-inflated single-pass slop** | Stopping after Iteration 1 despite blob botanicals, buried glazing, clipping umbrellas, or floating parts | Optional **Iterative Visual Critic & Honest Rating Loop (`vforge review`)**: archive snapshots, rate honestly (`0–10`, hard-capped on `qa_report.json` errors/warnings), log categorized defects, and iterate until `>= target_score`! |
 
 ---
 
@@ -33,8 +35,15 @@ Run CAD hardware generation via `.venv` Python (`engine/cad/cad_bridge.py`) to p
 - Ground lowest vertex to `Z = 0.0000 m`.
 
 ### Step D: Pass the 10-View Visual & Geometric QA Gate (`0` Errors, `0` Warnings)
-Run `vforge qa <build_script.py> --profile roblox --forward-axis +Y`.
-**Never trust exit code `0` alone** — open and inspect `contact_sheet_material.png` and `contact_sheet_diagnostic.png` with a vision tool (`read_file`) to verify proportions, silhouette, framing, and zero clipping from all 10 angles!
+Run `vforge qa <build_script.py> --profile roblox --forward-axis +Y` (add `--ortho-grid` ONLY for orthographic blueprints; add `--snapshot-iteration` when Iterative Review mode is enabled).
+**Never trust exit code `0` alone** — open and inspect `contact_sheet_material.png`, `contact_sheet_diagnostic.png`, and multi-angle `ref_comparison.png` with a vision tool (`read_file`) to verify proportions, silhouette, framing, and zero clipping from all angles!
+
+### Step D2 (Optional): Iterative Visual Critic & Honest Rating Loop (`vforge review`)
+When `review_loop.enabled` is turned ON in `asset_spec.json` (via `--iterate`, `vforge review config <dir> --enable`, or Studio UI):
+1. Compare all matched perspective / QA renders directly against every reference photo + `qa_report.json`.
+2. Write an honest **Iteration N Review — Honest Rating: X.X / 10** calling out specific defects by category (never inflating a `6.2/10` pass!).
+3. Log it via `vforge review log <dir> --score <X.X> --summary "..." --strength "..." --defect "Category|severity|Description|Fix"` — Velum Forge automatically archives iteration snapshots, enforces objective QA caps, updates `reviews/REVIEW_LOG.md`, and renders `reviews/iteration_progression.png`.
+4. Fix every critical/major defect and repeat until `honest_rating >= target_score` (default `9.0/10`) with `0` QA errors/warnings (or `max_iterations` reached).
 
 ### Step E: Bake `2048x2048` Cycles GPU PBR Atlases, Build 4 Variants & Generate `LOD0`–`LOD3`
 Run `vforge bake <bake_lod_variants.py>`, then visually inspect:

@@ -1,4 +1,4 @@
-"""Scaffold new Velum Forge 3D asset projects (`prop`, `cad`, `fish`, `vehicle`) with built-in QA & 2K bake."""
+"""Scaffold new Velum Forge 3D asset projects (`prop`, `cad`, `fish`, `arch`, `boat`/`vehicle`) with built-in QA & 2K bake."""
 from __future__ import annotations
 
 import os
