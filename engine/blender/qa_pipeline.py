@@ -218,11 +218,15 @@ def _configure_cycles_gpu(scene: bpy.types.Scene, samples: int) -> str:
     scene.render.engine = "CYCLES"
     scene.cycles.samples = samples
     cpus = os.cpu_count() or 8
+    env_t = os.environ.get("VELUM_BLENDER_THREADS", "").strip()
+    safe_threads = int(env_t) if env_t.isdigit() and int(env_t) > 0 else min(8, max(2, cpus // 2))
+    env_ts = os.environ.get("VELUM_CYCLES_TILE_SIZE", "").strip()
+    safe_tile = int(env_ts) if env_ts.isdigit() and int(env_ts) >= 64 else 512
     try:
         scene.render.threads_mode = "FIXED"
-        scene.render.threads = min(8, max(2, cpus // 2))
+        scene.render.threads = safe_threads
         scene.cycles.use_auto_tile = True
-        scene.cycles.tile_size = 512
+        scene.cycles.tile_size = safe_tile
     except Exception:
         pass
 
@@ -250,6 +254,10 @@ def _configure_cycles_gpu(scene: bpy.types.Scene, samples: int) -> str:
     scene.cycles.use_denoising = True
     if device_used == "OPTIX":
         try:
+            scene.cycles.denoising_use_gpu = True
+        except Exception:
+            pass
+        try:
             scene.cycles.denoiser = "OPTIX"
         except Exception:
             pass
@@ -260,6 +268,51 @@ def _configure_cycles_gpu(scene: bpy.types.Scene, samples: int) -> str:
         except Exception:
             pass
     return device_used
+
+
+def _render_still(scene: bpy.types.Scene, out_png: str) -> str:
+    """Render via `vflib.bake.render_still_safe` (atomic fsync + GPU-only guard + cooldown)."""
+    try:
+        from vflib import bake as _vf_bake
+
+        return _vf_bake.render_still_safe(scene, out_png)
+    except Exception:
+        pass
+    import shutil
+    import tempfile
+    import time
+
+    abs_dst = os.path.abspath(out_png)
+    dst_dir = os.path.dirname(abs_dst)
+    os.makedirs(dst_dir, exist_ok=True)
+    tmp_p = os.path.join(tempfile.gettempdir(), f"__vf_qa_{os.getpid()}_{os.path.basename(abs_dst)}")
+    staged = os.path.join(dst_dir, f".__vf_stage_{os.getpid()}_{os.path.basename(abs_dst)}")
+    scene.render.filepath = tmp_p
+    bpy.ops.render.render(write_still=True)
+    try:
+        shutil.copy2(tmp_p, staged)
+        try:
+            with open(staged, "rb+") as fh:
+                fh.flush()
+                os.fsync(fh.fileno())
+        except OSError:
+            pass
+        for attempt in range(6):
+            try:
+                os.replace(staged, abs_dst)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.4)
+    finally:
+        for p in (tmp_p, staged):
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+    return out_png
 
 
 def _build_studio(lo: Vector, hi: Vector) -> tuple[bpy.types.Collection, bpy.types.World]:
@@ -554,8 +607,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
             d = _oriented_dir(direction, args.forward_axis, is_top=(key == "top"))
             _frame_camera(cam, lo, hi, d, proj, res_x, res_y)
             out_png = os.path.join(args.out_dir, f"tile_{key}.png")
-            sc.render.filepath = out_png
-            bpy.ops.render.render(write_still=True)
+            _render_still(sc, out_png)
             tile_meta = {"path": out_png, "label": label, "projection": proj}
             if proj == "ORTHO":
                 tile_meta["ortho_scale_m"] = round(float(cam.data.ortho_scale), 4)
@@ -567,8 +619,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         for r_idx, rcam in enumerate(scene_ref_cams[:8]):
             sc.camera = rcam
             out_png = os.path.join(args.out_dir, f"tile_refcam_{r_idx:02d}.png")
-            sc.render.filepath = out_png
-            bpy.ops.render.render(write_still=True)
+            _render_still(sc, out_png)
             ref_img = str(rcam.get("vf_ref_image") or "")
             vw = str(rcam.get("vf_ref_view") or rcam.name)
             lens_mm = round(float(rcam.data.lens), 1)
@@ -624,8 +675,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
                 cam_cfg = dict(s_ref.get("camera") or {})
                 _frame_perspective_spec(cam, lo, hi, cam_cfg, res_x, res_y)
                 out_png = os.path.join(args.out_dir, f"tile_refcam_{persp_fallback_idx:02d}.png")
-                sc.render.filepath = out_png
-                bpy.ops.render.render(write_still=True)
+                _render_still(sc, out_png)
                 lens_mm = round(float(cam.data.lens), 1)
                 lbl = f"MATCHED CAM: {vw.upper()} (PERSP {lens_mm:g}mm)"
                 tiles[f"refcam_{persp_fallback_idx:02d}"] = {"path": out_png, "label": lbl, "projection": "PERSP", "lens_mm": lens_mm}
@@ -643,8 +693,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         bottom_dir = _oriented_dir((0.75, -0.75, -0.75), args.forward_axis)
         _frame_camera(cam, lo, hi, bottom_dir, "PERSP", res_x, res_y)
         bottom_png = os.path.join(args.out_dir, "tile_diag_bottom.png")
-        sc.render.filepath = bottom_png
-        bpy.ops.render.render(write_still=True)
+        _render_still(sc, bottom_png)
         tiles["diag_bottom"] = {"path": bottom_png, "label": "UNDERBODY / BOTTOM", "projection": "PERSP"}
 
         # 2) Diagnostic 1: Wireframe (Hero 3/4)
@@ -667,8 +716,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
             temp_obs.append(w)
 
         wire_png = os.path.join(args.out_dir, "tile_diag_wire.png")
-        sc.render.filepath = wire_png
-        bpy.ops.render.render(write_still=True)
+        _render_still(sc, wire_png)
         tiles["diag_wire"] = {"path": wire_png, "label": "WIREFRAME (HERO 3/4)", "projection": "PERSP"}
 
         for w in temp_obs:
@@ -678,8 +726,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         # 3) Diagnostic 2: Part Colors (Hero 3/4)
         _set_workbench(sc, "RANDOM", cavity=True)
         parts_png = os.path.join(args.out_dir, "tile_diag_parts.png")
-        sc.render.filepath = parts_png
-        bpy.ops.render.render(write_still=True)
+        _render_still(sc, parts_png)
         tiles["diag_parts"] = {"path": parts_png, "label": "PART COLORS (HERO 3/4)", "projection": "PERSP"}
 
         # 4) Diagnostic 3: Face Orientation (Blue=Outward / Red=Flipped)
@@ -687,8 +734,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         backface_mat = _build_backface_material()
         bpy.context.view_layer.material_override = backface_mat
         normals_png = os.path.join(args.out_dir, "tile_diag_normals.png")
-        sc.render.filepath = normals_png
-        bpy.ops.render.render(write_still=True)
+        _render_still(sc, normals_png)
         tiles["diag_normals"] = {
             "path": normals_png,
             "label": "FACE ORIENTATION (BLUE=OUT / RED=FLIPPED)",
