@@ -45,6 +45,7 @@ DEFAULT_REVIEW_CONFIG: dict[str, Any] = {
     "max_iterations": 3,
     "require_zero_qa_errors": True,
     "require_zero_qa_warnings": True,
+    "strict_ten": False,
     "focus_notes": "",
     "rubric_weights": dict(DEFAULT_RUBRIC_WEIGHTS),
 }
@@ -95,6 +96,8 @@ def normalize_review_config(raw: dict[str, Any] | None = None) -> dict[str, Any]
             cfg["require_zero_qa_errors"] = bool(raw["require_zero_qa_errors"])
         if "require_zero_qa_warnings" in raw:
             cfg["require_zero_qa_warnings"] = bool(raw["require_zero_qa_warnings"])
+        if "strict_ten" in raw:
+            cfg["strict_ten"] = bool(raw["strict_ten"])
         if "focus_notes" in raw and raw["focus_notes"] is not None:
             cfg["focus_notes"] = str(raw["focus_notes"]).strip()
         if isinstance(raw.get("rubric_weights"), dict):
@@ -125,6 +128,7 @@ def set_review_config(
     max_iterations: int | None = None,
     require_zero_qa_errors: bool | None = None,
     require_zero_qa_warnings: bool | None = None,
+    strict_ten: bool | None = None,
     focus_notes: str | None = None,
 ) -> dict[str, Any]:
     """Update and persist `review_loop` settings inside `<asset_dir>/asset_spec.json`."""
@@ -147,6 +151,13 @@ def set_review_config(
         }
 
     cfg = normalize_review_config(spec.get("review_loop"))
+    if strict_ten is not None:
+        cfg["strict_ten"] = bool(strict_ten)
+        if strict_ten:
+            if enabled is None:
+                cfg["enabled"] = True
+            if target_score is None:
+                cfg["target_score"] = 10.0
     if enabled is not None:
         cfg["enabled"] = bool(enabled)
     if target_score is not None:
@@ -161,6 +172,8 @@ def set_review_config(
         cfg["focus_notes"] = str(focus_notes).strip()
 
     spec["review_loop"] = cfg
+    if strict_ten is not None:
+        spec["rate_to_ten"] = bool(cfg["strict_ten"])
     _write_json(spec_path, spec)
     return cfg
 
@@ -731,6 +744,13 @@ def build_next_iteration_prompt(asset_dir: str | Path) -> str:
     target = float(cfg.get("target_score", 9.0))
     max_iters = int(cfg.get("max_iterations", 3))
 
+    strict_rule = (
+        "\n- **Strict 10/10 Rule:** Rate yourself honestly from `0` to `10` until the outcome genuinely becomes a `10 out of 10`. "
+        "It should look brilliant. Do not rush, and do not fake or inflate the rating.\n"
+        if (cfg.get("strict_ten") or target >= 10.0)
+        else ""
+    )
+
     if not iters:
         next_it = 1
         return (
@@ -740,7 +760,7 @@ def build_next_iteration_prompt(asset_dir: str | Path) -> str:
             f"3. Give an **honest 0.0-10.0 rating** (no grade inflation — call out primitive blobs, missing trim, clipping, signage issues, or flat materials explicitly).\n"
             f"4. Log the review with:\n"
             f"   `vforge review log \"{ad}\" --score <X.X> --summary \"...\" --strength \"...\" --defect \"Category|major|Defect description|Exact fix\"`\n"
-            f"5. Fix every critical/major defect and iterate up to `{max_iters}` iterations until **Honest Rating >= {target:.1f} / 10** and **QA = PASS (0 Errors, 0 Warnings)**."
+            f"5. Fix every critical/major defect and iterate up to `{max_iters}` iterations until **Honest Rating >= {target:.1f} / 10** and **QA = PASS (0 Errors, 0 Warnings)**.{strict_rule}"
         )
 
     last = iters[-1]
@@ -766,7 +786,7 @@ def build_next_iteration_prompt(asset_dir: str | Path) -> str:
         f"- **Previous Honest Rating:** `{float(last['honest_rating']):.1f} / 10` (Iteration {last['iteration']})\n"
         f"- **Target Honest Rating:** `{target:.1f} / 10` (Max Iterations: `{max_iters}`)\n"
         f"- **Archived Previous Renders:** `{last.get('snapshot_dir', ad / 'reviews')}`\n"
-        f"{focus}\n"
+        f"{focus}{strict_rule}\n"
         f"**Mandatory Defects to Fix in Iteration {next_it}:**\n{defect_lines}\n"
         f"{qa_lines}\n"
         f"**Verification & Logging Steps After Rebuilding:**\n"

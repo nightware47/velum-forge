@@ -1,4 +1,4 @@
-﻿r"""Sunrunner 24 â€” 24 ft (7.32 m) Offshore Center-Console T-Top Boat Builder (v2 Realism Overhaul).
+r"""Sunrunner 24 â€” 24 ft (7.32 m) Offshore Center-Console T-Top Boat Builder (v2 Realism Overhaul).
 
 Combines precision B-Rep CAD marine hardware (`cad/*.glb` from `build_hardware_cad.py`)
 with sculpted naval-architecture hull, Euro-transom motorwell, rounded glass-bridge helm console,

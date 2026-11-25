@@ -1,4 +1,4 @@
-﻿r"""Bake 2048x2048 Cycles PBR Textures, Build 4-Level LOD Chain & Generate 4 Showroom Variants for Sunrunner 24.
+r"""Bake 2048x2048 Cycles PBR Textures, Build 4-Level LOD Chain & Generate 4 Showroom Variants for Sunrunner 24.
 
 Pipeline stages:
   1. Build clean parametric LOD0 source geometry via `build_sunrunner_24.build_all()` (0 shell breaches).

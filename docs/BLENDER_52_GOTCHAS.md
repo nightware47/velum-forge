@@ -78,3 +78,51 @@ On high-core-count workstations (e.g. 16-core/32-thread Ryzen 9 + RTX GPU), two 
   - Safe tile size (`sc.cycles.use_auto_tile = True`, `tile_size = 512`) + deduplicated `1.0 s` GC + thermal cooldown (`VELUM_BAKE_COOLDOWN=1.0`) between heavy Cycles passes.
   - Runtime operator interception via `engine/blender/safe_bake_runner.py` on `bpy.ops.object.bake` and `bpy.ops.render.render`, guaranteeing even legacy or AI-generated bake scripts cannot re-enable CPU hybrid rendering or skip cooldowns in headless `-b` mode.
   - Crash-safe (`fsync`'d) cross-process sequential GPU lock (`~/.velum-forge/gpu_bake.lock`) so concurrent bakes never overlap, plus `--factory-startup` by default in headless batch jobs (opt in with `--user-addons`).
+
+---
+
+## 8. `TEX_SKY` Node (`aerosol_density` vs. `dust_density` in Blender 5.3)
+In Blender 5.3, `ShaderNodeTexSky` (Nishita sky) replaced `dust_density` with `aerosol_density`. Direct assignment raises `AttributeError`.
+- **Fix:** Guard every sky-node attribute write:
+```python
+if hasattr(sky, "aerosol_density"):
+    sky.aerosol_density = 0.28
+elif hasattr(sky, "dust_density"):
+    sky.dust_density = 0.28
+```
+
+---
+
+## 9. UV Clamp-Before-Nudge Ordering (Edge Collapse Bug)
+If you nudge degenerate UV triangles (`abs(area_2d) < 1e-10`) **before** clamping UVs inside `[0.001, 0.999]`, boundary-hugging triangles near `u=0` or `u=1` get clamped *after* nudging and collapse back onto the edge line.
+- **Fix:** Always clamp every UV vertex inside `[0.001, 0.999]` **first**, then detect near-zero-area UV faces and apply a `0.00015` separation offset (`vflib.bake.reweld_and_clamp_uvs`).
+
+---
+
+## 10. Cycles `ShaderNodeWireframe` Auto-Triangulates Quads
+Cycles/EEVEE `ShaderNodeWireframe` tessellates every quad into diagonal triangles at render time, making clean quad topology look triangulated in shader renders.
+- **Fix:** To prove clean quad loops visually (`vflib.integrity.verify_quad_flow` / `render_quad_flow_proof`), run `tris_convert_to_quads` on a duplicate verification object and render it with a **`WIREFRAME` modifier** (never `ShaderNodeWireframe`).
+
+---
+
+## 11. `runpy.run_path` Raises `SystemExit(0)` on Build Scripts
+Modular build scripts ending with `if __name__ == "__main__": raise SystemExit(main())` raise `SystemExit(0)` when loaded inside headless QA harnesses via `runpy.run_path(..., run_name="__main__")`.
+- **Fix:** Catch `SystemExit` in `qa_pipeline.py` and treat `exc.code in (0, None)` as normal completion.
+
+---
+
+## 12. Sky-Glare Matte Canvas Washout & Helper Fill Light Glass Discs
+Under high-altitude Nishita sunlight, Blender's default `Specular IOR Level = 0.5` turns striped awning/umbrella cotton fabrics milky white. Meanwhile, invisible studio helper `AREA` fill lights (`VF_IntFill`) appear as bright circular discs in storefront glass and picture frames.
+- **Fix:** Set `Specular IOR Level` to `0.06–0.08` (`Roughness >= 0.80`) on matte canvas/linen fabrics, and set `light_obj.visible_glossy = False` on helper fill lights.
+
+---
+
+## 13. Instance-Safe `Z = 0` Grounding (`users > 1` Linked Meshes)
+Looping over objects and translating `ob.data` vertices directly shifts a shared `Mesh` datablock `N` times (sending linked instances flying dozens of meters into the sky or underground).
+- **Fix:** Use `vflib.geo.ground_objects_safe(objs)`: transform instanced objects via `ob.location.z` and translate any unique non-instanced `ob.data` at most once (tracked via `seen_mesh_ptrs`).
+
+---
+
+## 14. Non-Destructive Roblox Export Naming (`_src` Suffix Leak)
+Renaming conflicting source objects to `<name>_src` inside `export_roblox()` without restoring them leaves permanent `_src` suffixes across Outliner collections when saving the `.blend`.
+- **Fix:** Wrap export cleanup in `try ... finally` and restore every original source object name after writing `.fbx` / `.glb` / `.luau`.

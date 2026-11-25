@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from velum_forge import bake_guard, cli, generator, references, review, studio_server  # noqa: E402
+from velum_forge import bake_guard, cli, doctor, generator, references, review, scaffold, studio_server  # noqa: E402
 
 
 def _make_sample_png(path: Path, color: tuple[int, int, int], label: str, size=(640, 480)) -> Path:
@@ -327,6 +327,76 @@ class TestVelumForgeV12(unittest.TestCase):
             az0 = spec["references"][0]["camera"]["azimuth_deg"]
             az1 = spec["references"][1]["camera"]["azimuth_deg"]
             self.assertNotEqual(az0, az1)
+
+
+class TestVelumForgeMergedFeatures(unittest.TestCase):
+    def test_building_and_arch_auto_profile_and_strict_ten(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            for kind in ("building", "arch"):
+                ad = Path(td) / f"cafe_{kind}"
+                created = generator.generate_parametric_scripts(
+                    ad,
+                    slug=f"cafe_{kind}",
+                    title=f"Cafe {kind.title()}",
+                    kind=kind,
+                    prompt="Art Deco corner bistro",
+                    length_m=14.0,
+                    references=[],
+                    rate_to_ten=True,
+                )
+                spec = json.loads(Path(created["spec"]).read_text(encoding="utf-8"))
+                self.assertEqual(spec["qa_profile"], "game")
+                self.assertEqual(spec["bake_res"], 2048)
+                self.assertTrue(spec["rate_to_ten"])
+                self.assertTrue(spec["review_loop"]["enabled"])
+                self.assertTrue(spec["review_loop"]["strict_ten"])
+                self.assertEqual(spec["review_loop"]["target_score"], 10.0)
+
+                build_src = Path(created["build_script"]).read_text(encoding="utf-8")
+                bake_src = Path(created["bake_script"]).read_text(encoding="utf-8")
+                self.assertIn("quadflow", build_src)
+                self.assertIn("refs.load_references", build_src)
+                self.assertIn("shared_non_color", bake_src)
+                self.assertIn("export.export_roblox", bake_src)
+
+                brief = generator.build_agent_handoff_prompt(ad)
+                self.assertIn("velum-architecture-environments", brief)
+                self.assertIn("10 out of 10", brief)
+                self.assertIn("split them into separate linked instances", brief)
+
+    def test_scaffold_building_and_arch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            for kind in ("building", "arch"):
+                res = scaffold.scaffold_asset(kind, f"test_{kind}", td)
+                btxt = Path(res["build_script"]).read_text(encoding="utf-8")
+                ktxt = Path(res["bake_script"]).read_text(encoding="utf-8")
+                self.assertIn("quadflow", btxt)
+                self.assertIn("refs.load_references", btxt)
+                self.assertIn("prepare_dedicated_set_uvs", ktxt)
+
+    def test_doctor_expects_five_skills(self) -> None:
+        skills_root = REPO_ROOT / "plugins" / "velum-forge" / "skills"
+        found = sorted(p.name for p in skills_root.iterdir() if p.is_dir() and (p / "SKILL.md").is_file())
+        self.assertEqual(
+            found,
+            [
+                "velum-3d-workflow",
+                "velum-architecture-environments",
+                "velum-cad-brep",
+                "velum-organic-species",
+                "velum-pbr-bake-lods",
+            ],
+        )
+
+    def test_studio_discover_assets_and_new_examples(self) -> None:
+        discovered = {a["name"]: a for a in studio_server.discover_assets()}
+        for expected in ("mahi_mahi", "sunrunner_24", "news_cafe_south_beach", "cruiser_boat_7c", "memorial"):
+            self.assertIn(expected, discovered)
+        nc = discovered["news_cafe_south_beach"]
+        self.assertEqual(nc["kind"], "building")
+        self.assertEqual(nc["qa_profile"], "game")
+        self.assertEqual(nc["bake_res"], 2048)
+        self.assertEqual(len(nc["references"]), 5)
 
 
 if __name__ == "__main__":

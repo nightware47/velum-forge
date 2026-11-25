@@ -1,4 +1,4 @@
-﻿"""Headless Blender 5.2+ visual QA and multi-angle render pipeline for Velum Forge.
+"""Headless Blender 5.2+ visual QA and multi-angle render pipeline for Velum Forge.
 
 Usage:
     blender -b [scene.blend] --python-exit-code 1 -P tools/blender/qa_pipeline.py -- \
@@ -86,7 +86,11 @@ def _import_asset(path: str) -> None:
         script_dir = os.path.dirname(os.path.abspath(path))
         if script_dir not in sys.path:
             sys.path.insert(0, script_dir)
-        runpy.run_path(path, run_name="__main__")
+        try:
+            runpy.run_path(path, run_name="__main__")
+        except SystemExit as exc:
+            if exc.code not in (0, None):
+                raise RuntimeError(f"Build script exited with code {exc.code}: {path}") from exc
     else:
         raise ValueError(f"Unsupported --input extension: {ext}")
 
@@ -419,7 +423,10 @@ def _compute_suncity_metrics(targets: list[bpy.types.Object], profile: str, qa: 
     if profile == "roblox":
         for part_name, t in sc_part_tris.items():
             if t > 20000:
-                msg = f"sc_part '{part_name}': combined {t} tris > Roblox 20,000 limit"
+                msg = (
+                    f"sc_part '{part_name}': combined {t} tris > Roblox 20,000 limit "
+                    "(split joined repeated/separable objects—e.g. 2+ stools or chairs—into separate linked instances or sub-parts before reducing detail)"
+                )
                 if msg not in qa["errors"]:
                     qa["errors"].append(msg)
                     qa["pass"] = False
@@ -531,7 +538,7 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         or (os.path.splitext(os.path.basename(bpy.data.filepath))[0] if bpy.data.filepath else "SceneAsset")
     )
 
-    qa = qa_check.run(objects=[o.name for o in targets], profile=args.profile)
+    qa = qa_check.run(objects=[o.name for o in targets], profile=args.profile, max_tris=args.max_tris)
     metrics = _compute_suncity_metrics(targets, args.profile, qa)
     qa.update(metrics)
     qa["asset_name"] = asset_name
@@ -649,8 +656,16 @@ def run_pipeline(args: argparse.Namespace) -> dict:
             "side": "side",
         }
         persp_fallback_idx = len(scene_ref_cams)
+        spec_base_dir = os.path.dirname(os.path.abspath(args.spec or args.input)) if (getattr(args, "spec", "") or args.input) else ""
         for s_ref in (spec.get("references") or [])[:8]:
-            rp = str(s_ref.get("path") or "")
+            raw_rp = str(s_ref.get("path") or s_ref.get("filename") or "")
+            rp = raw_rp
+            if rp and not os.path.isabs(rp) and spec_base_dir:
+                rp = os.path.join(spec_base_dir, rp)
+            if (not rp or not os.path.isfile(rp)) and raw_rp and spec_base_dir:
+                cand_rp = os.path.join(spec_base_dir, "references", os.path.basename(raw_rp))
+                if os.path.isfile(cand_rp):
+                    rp = cand_rp
             if not rp or not os.path.isfile(rp):
                 continue
             norm_rp = os.path.normcase(os.path.abspath(rp))
@@ -813,6 +828,7 @@ def main() -> int:
     parser.add_argument("--collection", default="", help="Target collection name")
     parser.add_argument("--objects", nargs="*", default=None, help="Target object names")
     parser.add_argument("--profile", default="roblox", choices=["roblox", "game", "render", "print"])
+    parser.add_argument("--max-tris", type=int, default=300000)
     parser.add_argument("--renderer", default="auto", choices=["auto", "cycles", "workbench"])
     parser.add_argument("--fast", action="store_true", help="Fast Workbench material render at 512x384")
     parser.add_argument("--res-x", type=int, default=640)

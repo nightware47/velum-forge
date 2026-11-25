@@ -339,7 +339,7 @@
     </button>
     <button class="nav-btn" id="nav-skills" onclick="switchTab('skills', this)">
       <span>AI Skills &amp; Playbook</span>
-      <span class="pill cyan">5</span>
+      <span id="skills-count" class="pill cyan">6</span>
     </button>
 
     <div class="sidebar-footer">
@@ -380,11 +380,30 @@
               <label>3D Pipeline Archetype</label>
               <select id="gen-kind" onchange="updateDefaultLength()">
                 <option value="fish">Organic Species / Fish / Creature (Watertight S^2 + Scales + Fins + Eyes)</option>
-                <option value="arch">Architecture / Building / Street Scene (Facade + Recessed Glazing + Street Cams)</option>
+                <option value="building">Architecture / Landmark / Restaurant (Multi-Datum + Interior + Botanicals + 2K Sets)</option>
+                <option value="arch">Architecture / Street Scene (Facade + Recessed Glazing + Street Cams)</option>
                 <option value="boat">Vehicle / Boat / Hard-Surface Assembly (Hull Loft + Console + Hardware)</option>
                 <option value="cad">Precision Mechanical CAD Hardware (build123d STEP + Watertight GLB)</option>
                 <option value="prop">Game Environment Prop (Beveled Multi-Part PBR + 4-Tier LODs)</option>
               </select>
+            </div>
+            <div class="row-2">
+              <div class="field">
+                <label>QA Profile</label>
+                <select id="gen-profile">
+                  <option value="auto" selected>Auto (Game High-Poly for Architecture, Roblox &lt;20k for Props/Boats/Fish)</option>
+                  <option value="game">Game / Realism High-Poly (--profile game, 300k tri BVH)</option>
+                  <option value="roblox">Roblox Studio Strict (&lt;20k tris/part)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>PBR Bake Resolution</label>
+                <select id="gen-bake-res">
+                  <option value="2048" selected>2048&times;2048 (2K Dedicated Set Standard)</option>
+                  <option value="1024">1024&times;1024 (1K Fast Preview)</option>
+                  <option value="4096">4096&times;4096 (4K Hero Close-Up)</option>
+                </select>
+              </div>
             </div>
             <div class="field" style="margin-bottom:0;">
               <label>Detailed Description / AI Prompt (proportions, architecture, foliage, signage, materials)</label>
@@ -425,6 +444,12 @@
                     <option value="errors_only">0 Errors Only</option>
                   </select>
                 </div>
+              </div>
+              <div class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <input type="checkbox" id="gen-rate-to-10" onchange="onStrictTenToggle()" style="width:auto;accent-color:var(--gold);" />
+                <label for="gen-rate-to-10" style="margin:0;font-size:12px;color:var(--gold);cursor:pointer;">
+                  Strict 10 / 10 Mode (Do not rush or fake rating — iterate until genuinely 10/10)
+                </label>
               </div>
               <div class="field" style="margin-bottom:0;">
                 <label>Optional Critic Focus Notes (what to scrutinize hardest)</label>
@@ -561,7 +586,7 @@
 
     function updateDefaultLength() {
       const k = document.getElementById('gen-kind').value;
-      const defaults = { fish: 1.10, arch: 16.0, boat: 7.20, cad: 0.22, prop: 0.85 };
+      const defaults = { fish: 1.10, building: 14.0, arch: 16.0, boat: 7.20, cad: 0.22, prop: 0.85 };
       document.getElementById('gen-length').value = defaults[k] || 1.0;
     }
 
@@ -569,6 +594,16 @@
       const on = document.getElementById('gen-iterate').checked;
       document.getElementById('iter-options-panel').style.display = on ? 'block' : 'none';
       document.getElementById('iter-toggle-row').classList.toggle('active-opt', on);
+      if (!on) document.getElementById('gen-rate-to-10').checked = false;
+    }
+
+    function onStrictTenToggle() {
+      const strictTen = document.getElementById('gen-rate-to-10').checked;
+      if (strictTen) {
+        document.getElementById('gen-iterate').checked = true;
+        toggleIterateOptions();
+        document.getElementById('gen-target-score').value = '10.0';
+      }
     }
 
     function updateOrthoGridEligibility() {
@@ -627,7 +662,7 @@
       }
       // Real photos & pasted captures default cleanly to Perspective Hero/Street View!
       const kind = document.getElementById('gen-kind')?.value;
-      return kind === 'arch' ? 'street_view' : 'hero';
+      return (kind === 'arch' || kind === 'building') ? 'street_view' : 'hero';
     }
 
     function handleFileSelect(fileList) {
@@ -708,13 +743,17 @@
         return;
       }
       const kind = document.getElementById('gen-kind').value;
+      const profile = document.getElementById('gen-profile').value;
+      const bake_res = parseInt(document.getElementById('gen-bake-res').value, 10) || 2048;
       const length_m = parseFloat(document.getElementById('gen-length').value) || 1.1;
       const prompt = document.getElementById('gen-prompt').value.trim() || name;
       const ortho_blueprint_grid = document.getElementById('gen-ortho-grid').checked;
       const iterEnabled = document.getElementById('gen-iterate').checked;
+      const rate_to_ten = document.getElementById('gen-rate-to-10').checked;
       const review_loop = {
-        enabled: iterEnabled,
-        target_score: parseFloat(document.getElementById('gen-target-score').value) || 9.0,
+        enabled: iterEnabled || rate_to_ten,
+        strict_ten: rate_to_ten,
+        target_score: parseFloat(document.getElementById('gen-target-score').value) || (rate_to_ten ? 10.0 : 9.0),
         max_iterations: parseInt(document.getElementById('gen-max-iters').value, 10) || 3,
         require_zero_qa_errors: true,
         require_zero_qa_warnings: document.getElementById('gen-qa-strict').value === 'strict',
@@ -724,7 +763,7 @@
       const res = await fetch('/api/generate', {
         method: 'POST',
         body: JSON.stringify({
-          name, title: name, kind, length_m, prompt, engine,
+          name, title: name, kind, profile, bake_res, rate_to_ten, length_m, prompt, engine,
           ortho_blueprint_grid, review_loop, references: STAGED_REFS
         })
       });
@@ -822,6 +861,7 @@
             <span style="font-size:11.5px;color:var(--muted);">${escHtml(a.source)} &bull; ${escHtml(a.kind)}</span>
             <div class="pill-row">
               ${qa.available ? `<span class="pill ${qa.pass ? 'ok' : 'err'}">QA ${qa.pass ? 'PASS' : 'FAIL'} (${qa.errors_count}E/${qa.warnings_count}W)</span>` : ''}
+              ${a.qa_profile ? `<span class="pill">${escHtml(a.qa_profile)}</span>` : ''}
               ${latestR != null ? `<span class="pill ${latestR >= (a.review_loop?.target_score || 9) ? 'ok' : 'warn'}">${Number(latestR).toFixed(1)} / 10</span>` : (revOn ? `<span class="pill warn">Critic ON</span>` : '')}
               ${lod0 ? `<span class="pill cyan">${lod0.toLocaleString()} tris</span>` : ''}
               ${refCount ? `<span class="pill">${refCount} Ref(s)</span>` : ''}
@@ -976,6 +1016,7 @@
       `).join('');
 
       const escPath = p => (p || '').replace(/\\/g, '\\\\');
+      const qaProfile = a.qa_profile || 'roblox';
       const snapFlag = a.review_loop?.enabled ? 'true' : 'false';
       const gridFlag = a.ortho_blueprint_grid ? 'true' : 'false';
 
@@ -989,7 +1030,7 @@
             <button class="btn" onclick="document.getElementById('add-existing-ref-input').click()">+ Add Reference Photo</button>
             <button class="btn" onclick="copyAssetBrief(${idx})">Copy AI Handoff Prompt</button>
             ${a.blend_file ? `<button class="btn btn-gold" onclick="openBlender('${escPath(a.blend_file)}')">Open in Blender</button>` : ''}
-            ${a.build_script ? `<button class="btn" onclick="runQa('${escPath(a.build_script)}', ${gridFlag}, ${snapFlag})">Run QA + Ref Compare</button>` : ''}
+            ${a.build_script ? `<button class="btn" onclick="runQa('${escPath(a.build_script)}', ${gridFlag}, ${snapFlag}, '${escHtml(qaProfile)}')">Run QA + Ref Compare</button>` : ''}
             ${a.bake_script ? `<button class="btn btn-primary" onclick="runBake('${escPath(a.bake_script)}')">Bake 2K + Variants + LODs</button>` : ''}
           </div>
         </div>
@@ -1100,7 +1141,7 @@
           if (rem === 0) {
             await fetch('/api/upload-reference', { method: 'POST', body: JSON.stringify({ asset_dir: a.dir, references: uploads }) });
             await loadAssets(a.name);
-            if (a.build_script) runQa(a.build_script, !!a.ortho_blueprint_grid, !!a.review_loop?.enabled);
+            if (a.build_script) runQa(a.build_script, !!a.ortho_blueprint_grid, !!a.review_loop?.enabled, a.qa_profile || 'roblox');
           }
         };
         rd.readAsDataURL(f);
@@ -1119,11 +1160,11 @@
       if (!d.ok) alert(d.error || 'Could not launch Blender');
     }
 
-    async function runQa(path, ortho_grid = false, snapshot_iteration = false) {
+    async function runQa(path, ortho_grid = false, snapshot_iteration = false, profile = 'roblox') {
       toggleConsole(true);
       const r = await fetch('/api/run-qa', {
         method: 'POST',
-        body: JSON.stringify({ path, profile: 'roblox', forward_axis: '+Y', ortho_grid, snapshot_iteration })
+        body: JSON.stringify({ path, profile: profile || 'roblox', forward_axis: '+Y', max_tris: 300000, ortho_grid, snapshot_iteration })
       });
       const d = await r.json();
       if (d.job_id) watchJob(d.job_id);
@@ -1177,6 +1218,8 @@
       const r = await fetch('/api/skills');
       const d = await r.json();
       SKILLS = d.skills || [];
+      const scEl = document.getElementById('skills-count');
+      if (scEl) scEl.textContent = SKILLS.length;
       const bar = document.getElementById('skill-tabs');
       bar.innerHTML = SKILLS.map((s, i) => `<button class="btn" onclick="showSkill(${i})">${escHtml(s.name)}</button>`).join('');
       if (SKILLS.length) showSkill(0);

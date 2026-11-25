@@ -1,4 +1,4 @@
-﻿"""Look-dev & verification renders that never disturb the user's scene settings.
+"""Look-dev & verification renders that never disturb the user's scene settings.
 
     from sclib import render
     render.render_views(objs, out_dir, views=("hero", "stern", "side", "top"), backdrop="sea")
