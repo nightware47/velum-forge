@@ -278,7 +278,10 @@ def discover_assets() -> list[dict[str, Any]]:
             )
 
             inferred_kind = spec_data.get("kind") or ("building" if any(k in sub.name for k in ("cafe", "building", "hotel", "restaurant", "street")) else "prop")
-            qa_profile = spec_data.get("qa_profile") or ("game" if (inferred_kind in ("building", "arch") or len(pbr_maps) > 12) else "roblox")
+            hp_on = bool(spec_data.get("high_poly_uncapped", False))
+            raw_mt = spec_data.get("qa_max_tris")
+            qa_max_tris = int(raw_mt) if raw_mt is not None else (0 if hp_on else 300000)
+            qa_profile = spec_data.get("qa_profile") or ("game" if (hp_on or inferred_kind in ("building", "arch") or len(pbr_maps) > 12) else "roblox")
 
             assets.append(
                 {
@@ -287,6 +290,8 @@ def discover_assets() -> list[dict[str, Any]]:
                     "title": spec_data.get("title") or sub.name.replace("_", " ").title(),
                     "kind": inferred_kind,
                     "qa_profile": qa_profile,
+                    "high_poly_uncapped": hp_on,
+                    "qa_max_tris": qa_max_tris,
                     "bake_res": int(spec_data.get("bake_res") or 2048),
                     "prompt": spec_data.get("prompt") or "",
                     "ortho_blueprint_grid": bool(spec_data.get("ortho_blueprint_grid", False)),
@@ -387,6 +392,7 @@ def _build_qa_cmd(
     ortho_grid: bool = False,
     snapshot_iteration: bool = False,
     max_tris: int = 300000,
+    high_poly: bool = False,
 ) -> list[str]:
     if platform.system() == "Windows":
         ps_exe = shutil.which("powershell") or "powershell.exe"
@@ -406,6 +412,8 @@ def _build_qa_cmd(
             "-ForwardAxis",
             fwd,
         ]
+        if high_poly:
+            cmd.append("-HighPoly")
         if ortho_grid:
             cmd.append("-OrthoGrid")
         if snapshot_iteration:
@@ -414,6 +422,8 @@ def _build_qa_cmd(
 
     py = find_venv_python()
     cmd = [py, "-m", "velum_forge.cli", "qa", asset_path, "--profile", profile, "--max-tris", str(max_tris), "--forward-axis", fwd]
+    if high_poly:
+        cmd.append("--high-poly")
     if ortho_grid:
         cmd.append("--ortho-grid")
     if snapshot_iteration:
@@ -533,8 +543,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             slug = slugify(raw_name)
             title = str(body.get("title") or raw_name.replace("_", " ").title()).strip()
             kind = str(body.get("kind") or "fish")
+            hp_on = bool(body.get("high_poly_uncapped", False))
             raw_profile = str(body.get("profile") or "auto")
-            qa_profile = ("game" if kind in ("building", "arch") else "roblox") if raw_profile == "auto" else raw_profile
+            qa_profile = ("game" if (hp_on or kind in ("building", "arch")) else "roblox") if raw_profile == "auto" else raw_profile
             bake_res = int(body.get("bake_res") or 2048)
             prompt = str(body.get("prompt") or title).strip()
             length_m = float(body.get("length_m") or 1.20)
@@ -546,9 +557,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 review_loop = review_loop or {}
                 if review_loop.get("enabled") is not False:
                     review_loop["enabled"] = True
-                review_loop.setdefault("strict_ten", True)
-                if not review_loop.get("target_score"):
-                    review_loop["target_score"] = 10.0
+                review_loop["strict_ten"] = True
+                review_loop["target_score"] = 10.0
             parent_dir = Path(str(body.get("parent_dir") or EXAMPLES_DIR)).resolve()
             asset_dir = parent_dir / slug
             asset_dir.mkdir(parents=True, exist_ok=True)
@@ -585,6 +595,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 ortho_blueprint_grid=ortho_grid,
                 review_loop=review_loop,
                 rate_to_ten=True if rate_to_ten is True else None,
+                high_poly_uncapped=hp_on,
             )
             handoff = build_agent_handoff_prompt(asset_dir)
 
@@ -626,7 +637,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                             "+Y",
                             ortho_grid=ortho_grid,
                             snapshot_iteration=iter_enabled,
-                            max_tris=300000,
+                            max_tris=(0 if hp_on else 300000),
+                            high_poly=hp_on,
                         ),
                         str(REPO_ROOT),
                     )
@@ -682,6 +694,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 require_zero_qa_warnings=body.get("require_zero_qa_warnings"),
                 strict_ten=body.get("strict_ten"),
                 focus_notes=body.get("focus_notes"),
+                high_poly_uncapped=body.get("high_poly_uncapped"),
             )
             self._send_json(
                 {
@@ -794,17 +807,27 @@ class StudioHandler(BaseHTTPRequestHandler):
 
         if route == "/api/run-qa":
             asset_path = str(body.get("path") or "")
-            profile = str(body.get("profile") or "roblox")
+            profile = str(body.get("profile") or "auto")
             fwd = str(body.get("forward_axis") or "+Y")
             ortho_grid = bool(body.get("ortho_grid", False))
             snap_iter = bool(body.get("snapshot_iteration", False))
-            max_tris = int(body.get("max_tris") or 300000)
+            high_poly = bool(body.get("high_poly", False))
+            raw_mt = body.get("max_tris")
+            max_tris = int(raw_mt) if raw_mt is not None else (0 if high_poly else 300000)
             jid = _start_chained_job(
                 f"10-View QA + Multi-Ref Comparison ({Path(asset_path).name})",
                 [
                     (
                         "Run 10-View QA",
-                        _build_qa_cmd(asset_path, profile, fwd, ortho_grid=ortho_grid, snapshot_iteration=snap_iter, max_tris=max_tris),
+                        _build_qa_cmd(
+                            asset_path,
+                            profile,
+                            fwd,
+                            ortho_grid=ortho_grid,
+                            snapshot_iteration=snap_iter,
+                            max_tris=max_tris,
+                            high_poly=high_poly,
+                        ),
                         str(REPO_ROOT),
                     )
                 ],

@@ -16,13 +16,14 @@ param(
     [string]$Collection = "",
     [string[]]$Objects = @(),
 
-    [ValidateSet("roblox", "game", "render", "print")]
-    [string]$Profile = "roblox",
+    [ValidateSet("auto", "roblox", "game", "render", "print")]
+    [string]$Profile = "auto",
 
     [ValidateSet("auto", "cycles", "workbench")]
     [string]$Renderer = "auto",
 
-    [int]$MaxTris = 300000,
+    [int]$MaxTris = -1,
+    [switch]$HighPoly,
     [switch]$Fast,
     [string]$Ref = "",
     [switch]$OrthoGrid,
@@ -135,6 +136,7 @@ $BlenderArgs = @("-b")
 if (-not $UserAddons) { $BlenderArgs += "--factory-startup" }
 $BlenderArgs += @("-t", "$SafeThreads")
 $PipelineArgs = @("--out-dir", $OutDir, "--profile", $Profile, "--max-tris", "$MaxTris", "--renderer", $Renderer, "--asset-name", $AssetStem, "--forward-axis", $ForwardAxis)
+if ($HighPoly) { $PipelineArgs += "--high-poly" }
 if ($Fast) { $PipelineArgs += "--fast" }
 if ($OrthoGrid) { $PipelineArgs += "--ortho-grid" }
 if (Test-Path -LiteralPath $AutoSpecPath) { $PipelineArgs += @("--spec", $AutoSpecPath) }

@@ -40,6 +40,7 @@ Stage 6: Instance-Aware LOD0..LOD3 + TEXTURE_SETS Export (0 `_src`) + Visual Rev
 | **`fish` / `creature` / `organic`** | `velum-organic-species` + `velum-pbr-bake-lods` — Ref: `examples/mahi_mahi/` | `--profile roblox` (or `--profile game` for high-poly) |
 | **`cad`** (precision mechanical assembly) | `velum-cad-brep` + `velum-pbr-bake-lods` | `--profile roblox` / `--profile print` |
 
+- **Opt-In High-Poly Uncapped Mode (`--high-poly` / `--max-tris 0`, OFF by default):** Standard builds keep `--profile roblox` (`<20k`/part) or `--profile game --max-tris 300000`. ONLY when explicitly toggled via `--high-poly`, `high_poly_uncapped: true`, Studio UI toggle, or explicit prompt instruction (*"High-Poly Uncapped Mode"*, *"no 300k cap"*, *"photorealistic high-poly"*), run `--profile game --high-poly --max-tris 0`, ignore both `300k` and `20k` caps (still keep linked instances for 2K texel density), and build to full News Cafe ArchViz segment floors (`24–36` segs furniture/rings/globes, `16–24` segs tableware/bottles, `12–16` segs + Catmull-Rom `substeps=3` tubes, `bevel` micro-bevels, `style="quatrefoil"` breeze blocks, `20–24`-seg palm trunks w/ `14–18` fronds × `16–22` `3`-seg curved leaflet pairs).
 - **Split-Into-Instances First (`> 20k` Tris) Rule:** Whenever any object exceeds `20,000` triangles, **NEVER immediately decimate or drop polygon detail**. First inspect whether it combines repeated or separable assets (e.g., 2+ barstools joined together, multiple chairs, or table+tableware) and **split them into separate linked `Mesh` instances** (`vflib.geo.finalize_mesh_data` + `vflib.geo.spawn_instance`, centered at local pivots with `vf_instanced = True`) or distinct semantic sub-parts along structural seams so each instance stays high-detail and under `20,000` tris with higher UV texel density!
 - **Real Perspective Photos (`projection: "perspective"` — Street View, 3/4 shots, close-ups, aerials):**
   - Do **NOT** force flat ortho blueprint planes or ortho grids onto perspective photos!
@@ -49,8 +50,8 @@ Stage 6: Instance-Aware LOD0..LOD3 + TEXTURE_SETS Export (0 `_src`) + Visual Rev
 - **Starting from CLI:**
   ```powershell
   vforge generate red_snapper --kind fish --length 0.85 --ref path\to\snapper_photo.jpg --prompt "Northern Red Snapper"
-  vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv1.jpg --ref gsv2.jpg --iterate --target-score 9.0 --max-iterations 3
-  vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv1.jpg --rate-to-10 --engine handoff
+  vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv1.jpg --ref gsv2.jpg --iterate
+  vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv1.jpg --high-poly --iterate --engine handoff
   ```
 
 ### Stage 1 — Precision Mechanical CAD Sub-Assemblies (`velum-cad-brep`)
@@ -72,20 +73,21 @@ Stage 6: Instance-Aware LOD0..LOD3 + TEXTURE_SETS Export (0 `_src`) + Visual Rev
   ```powershell
   vforge qa path\to\build_asset.py --profile roblox --forward-axis +Y
   vforge qa path\to\build_building.py --profile game --forward-axis +Y --max-tris 300000 --snapshot-iteration
+  vforge qa path\to\build_building.py --profile game --high-poly --max-tris 0 --forward-axis +Y --snapshot-iteration
   ```
 - **Always inspect visually** (`read_file`): `renders/qa_contact_material.png`, `renders/qa_contact_diagnostic.png`, `renders/ref_comparison.png`, individual `renders/refcam_*.png` shots, plus Street View / interior / macro joint close-ups. Check zero red backfaces, zero spikes, zero floating/clipping, and zero glossy fill-light discs in glass (`visible_glossy = False`).
 
-### Stage 4B (OPTIONAL) — Iterative Visual Critic & Honest Rating Loop (`vforge review` / `--rate-to-10`)
-Check `asset_spec.json["review_loop"]["enabled"]` (or whether `--rate-to-10` / iterative review was requested).
+### Stage 4B (OPTIONAL) — Iterative Visual Critic & Strict Always-10/10 Loop (`vforge review`)
+Check `asset_spec.json["review_loop"]["enabled"]` (or whether iterative review was requested).
 - **If `enabled == false`:** skip straight to Stage 5 once Stage 4 passes (`0` errors, `0` warnings).
-- **If `enabled == true` (or `--rate-to-10`):**
+- **If `enabled == true` (always Strict `10.0 / 10`):**
   1. Visually inspect ALL rendered views against ALL reference photos + `qa_report.json`.
-  2. Be **brutally honest — NO grade inflation!** When `--rate-to-10` is active: rate honestly from `0` to `10` until the outcome genuinely becomes a **`10 out of 10`**. Do not rush, and do not fake or inflate the rating.
-  3. Record each iteration via `vforge review log` (`velum_forge.review` enforces automatic QA caps at `7.9/10` on errors or `8.9/10` on warnings, archives snapshots, updates `reviews/REVIEW_LOG.md`, and renders `reviews/iteration_progression.png`):
+  2. Be **brutally honest — NO grade inflation!** Rate yourself honestly from `0` to `10` until the outcome genuinely becomes a **`10 out of 10`**. Do not rush, do not fake or inflate the rating, and **NEVER approve or proceed to Stage 5 below `10.0 / 10`** (even `9.0`, `9.5`, or `9.6` must keep iterating!). When High-Poly Uncapped Mode (`--high-poly`) is active, flag faceted low-segment (`<= 10` segs) hero props or sparse foliage as `[MAJOR]` defects blocking `10/10`.
+  3. Record each iteration via `vforge review log` (`velum_forge.review` enforces automatic QA/defect caps at `7.9/10` on errors, `8.9/10` on warnings, and `9.5/10` when defects remain, archives snapshots, updates `reviews/REVIEW_LOG.md`, and renders `reviews/iteration_progression.png`):
      ```powershell
      vforge review log path\to\asset_dir --score 7.8 --summary "Progress check" --strength "Outward blue normals" --defect "Botanicals|major|Blob bushes|Build 3D curved botanical sprays"
      ```
-  4. Iterate until `honest_rating >= target_score` (`9.0/10` default, `10.0/10` in strict `--rate-to-10` mode) AND `QA PASS (0E/0W)`.
+  4. Keep iterating until **`honest_rating == 10.0 / 10`**, `0` unresolved defects, AND `QA PASS (0E/0W)`.
 
 ### Stage 5 — Dedicated `2048x2048` Per-Set Cycles GPU PBR Bake & Variants (`velum-pbr-bake-lods`)
 - Partition large scenes by `ob["vf_asset_set"]` (`vflib.bake.group_objects_by_asset_set`) and bake **each set onto its own `2048x2048` (2K)** 6-map atlas (`Color` `sRGB` via `lin_arr_to_srgb` + OpenGL `Normal`, `Roughness`, `Metalness`, `AO`, `ORM` `Non-Color`) via hardware-safe GPU-only Cycles (`vforge bake` / `enable_cycles_gpu`), with `isolate_for_ao=True`, `GraphicUV` preservation, and `shared_non_color` single-pack variant reuse.

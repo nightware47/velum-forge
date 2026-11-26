@@ -95,11 +95,13 @@ Large scenes **must never** be joined into 1–2 monolithic meshes that crush al
 
 ---
 
-## 9. Mandatory Architectural QA Cameras & Profile
+## 9. Mandatory Architectural QA Cameras, Opt-In High-Poly Toggle & Always-10/10 Review
 
-- Run `vforge qa` with `--profile game` (unless the user explicitly asks for strict `<20k` Roblox single-mesh limits, in which case use `--profile roblox`) and `--max-tris 300000`.
+- **Standard vs Opt-In High-Poly Uncapped Mode:** By default, run `vforge qa` with `--profile game --max-tris 300000` (or `--profile roblox` for strict `<20k`/part). When **High-Poly Uncapped Mode** is explicitly toggled (`--high-poly`, `high_poly_uncapped: true`, Studio UI toggle, or explicit prompt request such as *"photorealistic high-poly"* / *"no 300k cap"*), pass **`--profile game --high-poly --max-tris 0`** and adhere strictly to News Cafe ArchViz fidelity floors:
+  - **Never slash radial segments or botanicals to chase a tri cap** (`--max-tris 0` = unlimited BVH; still use linked instances for 2K texel density).
+  - Hero furniture/tabletops/rings/globes: `24–36` radial segs; curved bentwood/legs: `12–16` segs + Catmull-Rom `substeps=3` (`add_spline_tube(..., substeps=3)`); tableware/bottles: `16–24` segs; micro-beveled architectural trim (`add_box(..., bevel=0.004..0.020)`) & `20–24`-seg curved curbs/breeze blocks (`add_breeze_block(..., style="quatrefoil")`); coconut palms (`20–24`-seg curved trunks, `14–18` fronds × `16–22` pairs of `3`-seg curved V-folded leaflets) + dense branched shade trees & hedges (`40k–250k+` botanical tris).
 - In addition to standard turntable + contact sheets, render and visually inspect:
   1. **Street-level pedestrian hero angles** matched to reference photography/Street View.
   2. **Interior eye-level shots** showing bar counter, speed rails, framed 3D paintings, and banquette channel-tufting.
   3. **Macro joint & tabletop close-ups** (`baked_macro_bistro.png`) proving zero rail overhang, clean T-collars, crisp 2K text/signage, and flush `Z` grounding.
-- **Honest `0–10` Self-Rating Loop:** When `rate_to_ten` is active (default for Studio/handoff builds), score each iteration honestly from `0` to `10` against the references and macro renders, listing every remaining flaw and iterating until it genuinely achieves **`10 / 10`**—never rush and never fake or inflate the rating.
+- **Strict Always-`10.0 / 10` Self-Rating Standard:** Whenever Iterative Critic / Honest Rating is active, the target is **ALWAYS `10.0 / 10`** with `0` QA errors, `0` QA warnings, and `0` unresolved defects — never rush, never fake scores, and never stop or proceed to baking below **`10 / 10`**. When High-Poly Uncapped Mode is ON, faceted low-segment (`<= 10` segs) hero props block `10.0 / 10`.

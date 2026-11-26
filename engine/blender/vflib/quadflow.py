@@ -45,14 +45,19 @@ def spawn_instance(name, mesh_data, col, *, loc=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 
 # ---------------------------------------------------------------------------
 
 def _island_signed_volume(verts_list, faces_list):
+    if not faces_list:
+        return 0.0
+    ref = faces_list[0].verts[0].co
     vol = 0.0
     for f in faces_list:
         vs = f.verts
         if len(vs) < 3:
             continue
-        v0 = vs[0].co
+        v0 = vs[0].co - ref
         for k in range(1, len(vs) - 1):
-            vol += v0.dot(vs[k].co.cross(vs[k + 1].co))
+            v1 = vs[k].co - ref
+            v2 = vs[k + 1].co - ref
+            vol += v0.dot(v1.cross(v2))
     return vol / 6.0
 
 
@@ -219,35 +224,49 @@ def _apply_uv_rect_to_faces(bm, faces, uv_name="UVMap"):
             )
 
 
-def add_box(bm, center, size, mat_idx=0, rot_euler=None):
-    """Append an axis-aligned (or rotated) quad box centered at `center`."""
-    ret = bmesh.ops.create_cube(bm, size=1.0)
-    verts = ret["verts"]
-    sx, sy, sz = size
-    for v in verts:
-        v.co.x *= sx
-        v.co.y *= sy
-        v.co.z *= sz
-    if rot_euler is not None:
-        m = Euler(rot_euler, "XYZ").to_matrix()
-        for v in verts:
-            v.co = m @ v.co
-    cx, cy, cz = center
-    cvec = Vector((cx, cy, cz))
-    for v in verts:
-        v.co += cvec
-    faces = list({f for v in verts for f in v.link_faces})
+def add_box(bm, center, size, mat_idx=0, rot_euler=None, *, bevel=0.0, bevel_segments=2):
+    """Append an axis-aligned (or rotated) quad box centered at `center` (optionally micro-beveled)."""
+    sx, sy, sz = (max(float(c), 1e-4) for c in size)
+    mat_s = Matrix.Diagonal((sx, sy, sz, 1.0))
+    mat_r = Euler(rot_euler, "XYZ").to_matrix().to_4x4() if rot_euler is not None else Matrix.Identity(4)
+    mat_t = Matrix.Translation(Vector(center))
+    xf = mat_t @ mat_r @ mat_s
+    ret = bmesh.ops.create_cube(bm, size=1.0, matrix=xf)
+    verts = set(ret["verts"])
+    if bevel > 0.0:
+        b_amt = min(float(bevel), min(sx, sy, sz) * 0.24)
+        if b_amt > 1e-6:
+            edges = [e for e in bm.edges if e.verts[0] in verts and e.verts[1] in verts]
+            res = bmesh.ops.bevel(
+                bm,
+                geom=edges,
+                offset=b_amt,
+                offset_type="OFFSET",
+                segments=max(1, int(bevel_segments)),
+                profile=0.5,
+                affect="EDGES",
+            )
+            verts.update(res.get("verts", []))
+    faces = [f for f in bm.faces if all(v in verts for v in f.verts)]
     for f in faces:
         f.material_index = mat_idx
-    return verts
+    _apply_uv_rect_to_faces(bm, faces)
+    return list(verts)
 
 
-def add_box_bounds(bm, xmin, xmax, ymin, ymax, zmin, zmax, mat_idx=0):
-    """Append an axis-aligned box spanning explicit min/max bounds."""
+def add_box_bounds(bm, xmin, xmax, ymin, ymax, zmin, zmax, mat_idx=0, *, bevel=0.0, bevel_segments=2):
+    """Append an axis-aligned box spanning explicit min/max bounds (optionally micro-beveled)."""
     cx = 0.5 * (xmin + xmax)
     cy = 0.5 * (ymin + ymax)
     cz = 0.5 * (zmin + zmax)
-    return add_box(bm, (cx, cy, cz), (xmax - xmin, ymax - ymin, zmax - zmin), mat_idx=mat_idx)
+    return add_box(
+        bm,
+        (cx, cy, cz),
+        (abs(xmax - xmin), abs(ymax - ymin), abs(zmax - zmin)),
+        mat_idx=mat_idx,
+        bevel=bevel,
+        bevel_segments=bevel_segments,
+    )
 
 
 def add_quad_grid_box(bm, center, size, segs=(4, 4, 2), radius=0.0, mat_idx=0, rot_euler=None):
@@ -365,16 +384,73 @@ def add_torus_ring(bm, center, major_r, minor_r, major_segs=36, minor_segs=14,
     return [v for rg in rings for v in rg]
 
 
-def add_spline_tube(bm, pts, radii, segs=16, mat_idx=0, closed=False, cap_ends=True):
-    """Sweep a circular profile along `pts` using a parallel-transport Bishop frame."""
+def _catmull_rom_spline(pvecs, rlist, substeps, closed=False):
+    """Interpolate control points & radii using smooth cubic Catmull-Rom splines."""
+    sub = max(1, int(substeps))
+    if sub <= 1 or len(pvecs) < 2:
+        return list(pvecs), list(rlist)
+    if closed and len(pvecs) >= 3:
+        pts_src = list(pvecs)
+        r_src = list(rlist)
+        if (pts_src[-1] - pts_src[0]).length < 1e-5:
+            pts_src = pts_src[:-1]
+            r_src = r_src[:-1]
+        m = len(pts_src)
+        if m >= 3:
+            out_p, out_r = [], []
+            for i in range(m):
+                p0, p1, p2, p3 = pts_src[(i - 1) % m], pts_src[i], pts_src[(i + 1) % m], pts_src[(i + 2) % m]
+                r1, r2 = r_src[i], r_src[(i + 1) % m]
+                for s in range(sub):
+                    t = s / sub
+                    t2 = t * t
+                    t3 = t2 * t
+                    v = 0.5 * (
+                        (2.0 * p1)
+                        + (-p0 + p2) * t
+                        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+                    )
+                    out_p.append(v)
+                    out_r.append(r1 + (r2 - r1) * t)
+            return out_p, out_r
+
+    ext_p = [pvecs[0] + (pvecs[0] - pvecs[1])] + list(pvecs) + [pvecs[-1] + (pvecs[-1] - pvecs[-2])]
+    ext_r = [rlist[0]] + list(rlist) + [rlist[-1]]
+    out_p, out_r = [], []
+    for i in range(1, len(ext_p) - 2):
+        p0, p1, p2, p3 = ext_p[i - 1], ext_p[i], ext_p[i + 1], ext_p[i + 2]
+        r1, r2 = ext_r[i], ext_r[i + 1]
+        n_s = sub if i < len(ext_p) - 3 else sub + 1
+        for s in range(n_s):
+            t = s / sub
+            t2 = t * t
+            t3 = t2 * t
+            v = 0.5 * (
+                (2.0 * p1)
+                + (-p0 + p2) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+            )
+            out_p.append(v)
+            out_r.append(r1 + (r2 - r1) * t)
+    return out_p, out_r
+
+
+def add_spline_tube(bm, pts, radii, segs=16, mat_idx=0, closed=False, cap_ends=True, *, substeps=1):
+    """Sweep a circular profile along `pts` using a parallel-transport Bishop frame (with optional Catmull-Rom smoothing)."""
     pvecs = [Vector(p) for p in pts]
+    if len(pvecs) < 2:
+        return []
+    if isinstance(radii, (int, float)):
+        rlist = [float(radii)] * len(pvecs)
+    else:
+        rlist = [float(r) for r in radii]
+    if substeps > 1:
+        pvecs, rlist = _catmull_rom_spline(pvecs, rlist, substeps, closed=closed)
     n_pts = len(pvecs)
     if n_pts < 2:
         return []
-    if isinstance(radii, (int, float)):
-        rlist = [float(radii)] * n_pts
-    else:
-        rlist = [float(r) for r in radii]
 
     tangents = []
     for i in range(n_pts):
@@ -714,12 +790,9 @@ def add_bougainvillea_cluster(bm, center, radius=0.055, bract_mat_idx=0, stamen_
                     segs=8, rings=4, mat_idx=stamen_mat_idx)
 
 
-def add_breeze_block(bm, center, size=0.295, depth=0.10, facing_axis="+Y", mat_idx=0):
-    """Build a manifold Art-Deco pierced concrete breeze block centered at `center`."""
-    hs = 0.5 * size
-    wall = max(0.022, size * 0.13)
-    in_r = hs - wall
-    # 4 outer perimeter frame bars + diamond interior ribs
+def add_breeze_block(bm, center, size=0.295, depth=0.10, facing_axis="+Y", mat_idx=0,
+                     *, height=None, style="diamond", n_ring=24):
+    """Build a manifold Art-Deco pierced concrete breeze block (`style='quatrefoil'` or `'diamond'`)."""
     axis_map = {
         "+Y": Matrix.Rotation(-0.5 * math.pi, 3, "X"),
         "-Y": Matrix.Rotation(0.5 * math.pi, 3, "X"),
@@ -729,6 +802,53 @@ def add_breeze_block(bm, center, size=0.295, depth=0.10, facing_axis="+Y", mat_i
     }
     rot = axis_map.get(facing_axis, Matrix.Rotation(-0.5 * math.pi, 3, "X"))
     c = Vector(center)
+    blk_w = float(size)
+    blk_h = float(size if height is None else height)
+
+    if str(style).lower() == "quatrefoil":
+        hw = 0.5 * blk_w
+        hh = 0.5 * blk_h
+        hd = 0.5 * depth
+        n_r = max(12, int(n_ring))
+        outer_uv, inner_uv, inner_bev_uv = [], [], []
+        for k in range(n_r):
+            ang = (k / n_r) * math.tau
+            ca, sa = math.cos(ang), math.sin(ang)
+            s_box = min(hw / max(abs(ca), 1e-6), hh / max(abs(sa), 1e-6))
+            outer_uv.append((ca * s_box, sa * s_box))
+            lobe = abs(math.cos(2.0 * ang)) ** 1.45
+            r_fac = 0.43 + 0.37 * lobe
+            inner_uv.append((ca * hw * r_fac, sa * hh * r_fac))
+            inner_bev_uv.append((ca * hw * min(0.92, r_fac + 0.055), sa * hh * min(0.92, r_fac + 0.055)))
+
+        def _pt(u, v, w):
+            return (rot @ Vector((u, v, w))) + c
+
+        bev_d = min(0.012, depth * 0.14)
+        vo_f = [bm.verts.new(_pt(u, v, +hd)) for u, v in outer_uv]
+        vo_b = [bm.verts.new(_pt(u, v, -hd)) for u, v in outer_uv]
+        vb_f = [bm.verts.new(_pt(u, v, +hd)) for u, v in inner_bev_uv]
+        vb_b = [bm.verts.new(_pt(u, v, -hd)) for u, v in inner_bev_uv]
+        vi_f = [bm.verts.new(_pt(u, v, +hd - bev_d)) for u, v in inner_uv]
+        vi_b = [bm.verts.new(_pt(u, v, -hd + bev_d)) for u, v in inner_uv]
+
+        faces = []
+        for k in range(n_r):
+            kn = (k + 1) % n_r
+            faces.append(bm.faces.new((vo_f[k], vo_f[kn], vb_f[kn], vb_f[k])))
+            faces.append(bm.faces.new((vb_f[k], vb_f[kn], vi_f[kn], vi_f[k])))
+            faces.append(bm.faces.new((vo_b[kn], vo_b[k], vb_b[k], vb_b[kn])))
+            faces.append(bm.faces.new((vb_b[kn], vb_b[k], vi_b[k], vi_b[kn])))
+            faces.append(bm.faces.new((vo_b[k], vo_b[kn], vo_f[kn], vo_f[k])))
+            faces.append(bm.faces.new((vi_f[k], vi_f[kn], vi_b[kn], vi_b[k])))
+        for f in faces:
+            f.material_index = mat_idx
+        _apply_uv_rect_to_faces(bm, faces)
+        return vo_f + vo_b + vb_f + vb_b + vi_f + vi_b
+
+    hs = 0.5 * blk_w
+    wall = max(0.022, blk_w * 0.13)
+    in_r = hs - wall
 
     def _local_box(lx, ly, sx, sy, sz):
         bverts = bmesh.ops.create_cube(bm, size=1.0)["verts"]
@@ -739,10 +859,10 @@ def add_breeze_block(bm, center, size=0.295, depth=0.10, facing_axis="+Y", mat_i
             for f in v.link_faces:
                 f.material_index = mat_idx
 
-    _local_box(0.0, hs - 0.5 * wall, size, wall, depth)
-    _local_box(0.0, -hs + 0.5 * wall, size, wall, depth)
-    _local_box(-hs + 0.5 * wall, 0.0, wall, size - 2.0 * wall, depth)
-    _local_box(hs - 0.5 * wall, 0.0, wall, size - 2.0 * wall, depth)
+    _local_box(0.0, hs - 0.5 * wall, blk_w, wall, depth)
+    _local_box(0.0, -hs + 0.5 * wall, blk_w, wall, depth)
+    _local_box(-hs + 0.5 * wall, 0.0, wall, blk_w - 2.0 * wall, depth)
+    _local_box(hs - 0.5 * wall, 0.0, wall, blk_w - 2.0 * wall, depth)
     diag = in_r * 1.414
     for angle in (0.25 * math.pi, -0.25 * math.pi):
         m_d = rot @ Matrix.Rotation(angle, 3, "Z")

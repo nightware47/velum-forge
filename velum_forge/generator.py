@@ -63,7 +63,12 @@ def detect_ai_clis() -> list[dict[str, Any]]:
     return found
 
 
-def build_agent_handoff_prompt(asset_dir: Path, *, rate_to_ten: bool | None = None) -> str:
+def build_agent_handoff_prompt(
+    asset_dir: Path,
+    *,
+    rate_to_ten: bool | None = None,
+    high_poly: bool | None = None,
+) -> str:
     """Build a crystal-clear, copy-paste-ready prompt for Antigravity, Cursor, Claude Code, or Codex."""
     spec_file = asset_dir / "asset_spec.json"
     spec = json.loads(spec_file.read_text(encoding="utf-8-sig")) if spec_file.is_file() else {}
@@ -73,7 +78,8 @@ def build_agent_handoff_prompt(asset_dir: Path, *, rate_to_ten: bool | None = No
     prompt = spec.get("prompt", title)
     length_m = spec.get("target_length_m", 1.2)
     is_arch = kind in ("building", "arch")
-    qa_profile = spec.get("qa_profile", "game" if is_arch else "roblox")
+    hp_on = bool(spec.get("high_poly_uncapped", False)) if high_poly is None else bool(high_poly)
+    qa_profile = "game" if hp_on else spec.get("qa_profile", "game" if is_arch else "roblox")
     bake_res = int(spec.get("bake_res", 2048))
     refs = spec.get("references", [])
     pal = spec.get("extracted_palette", [])
@@ -81,14 +87,12 @@ def build_agent_handoff_prompt(asset_dir: Path, *, rate_to_ten: bool | None = No
     review_cfg = normalize_review_config(spec.get("review_loop"))
     if rate_to_ten is True:
         review_cfg["enabled"] = True
-        review_cfg["target_score"] = 10.0
-        review_cfg["strict_ten"] = True
     elif rate_to_ten is False:
         review_cfg["enabled"] = False
     elif spec.get("rate_to_ten") and not review_cfg["enabled"]:
         review_cfg["enabled"] = True
-        review_cfg["target_score"] = 10.0
-        review_cfg["strict_ten"] = True
+    review_cfg["target_score"] = 10.0
+    review_cfg["strict_ten"] = True
 
     persp_refs = [r for r in refs if r.get("projection", "perspective") != "ortho_blueprint"]
     ortho_refs = [r for r in refs if r.get("projection") == "ortho_blueprint"]
@@ -130,15 +134,34 @@ def build_agent_handoff_prompt(asset_dir: Path, *, rate_to_ten: bool | None = No
         if is_arch
         else ("`velum-organic-species`, " if kind == "fish" else "")
     )
-    budget_rule = (
-        "Real-world meter scale (`+Y` forward, `+Z` up, `ground_objects_safe`), multi-datum grounding (`Z_ROAD`, `Z_SW`, `Z_FLOOR_INT`), `2D` obstacle clearances, structured `FIXED` quad-flow furniture (`>= 80%` `Alt+J` quads), 3D curved botanicals (`deconflict_botanical_islands`), modular Outliner instancing + `vf_asset_set` (if any object exceeds `20k` tris because repeated/separable items like 2+ stools or chairs are joined together, split them into separate linked instances or sub-parts before reducing detail), and `--profile game --max-tris 300000`."
-        if is_arch
-        else "Real-world meter scale (`+Y` forward, `+Z` up, `ground_objects_safe`), `< 20,000` tris per `MeshPart` (`--profile roblox` — if any object exceeds `20k` tris because repeated/separable items like 2+ stools or props are joined together, split them into separate linked instances or sub-parts first instead of lowering detail), `>= 1.6 mm` wall thickness, positive signed volume normals, and `0` BVH shell breaches."
-    )
+    if hp_on:
+        budget_rule = (
+            "**[HIGH-POLY UNCAPPED MODE: ON — NO 300k / 20k TRI CAP]**\n"
+            "   - Use `--profile game --high-poly --max-tris 0` (unlimited BVH & geometry budget — ignore any 300k scene limit or 20k per-part limit). Keep repeating props as linked `Mesh` instances (`vf_asset_set`, `vf_instanced = True`) and split any merged multi-prop object strictly for clean 2K PBR UV texel density — NEVER decimate or slash radial segments/foliage to chase a tri limit.\n"
+            "   - **Photorealistic ArchViz Geometry Floors (News Cafe Standard):**\n"
+            "     - Hero furniture, tabletops, cushions, barstools, rings & globes: `24–36` radial segments; curved bentwood tubes & splayed legs: `12–16` segs + Catmull-Rom smoothing (`vflib.quadflow.add_spline_tube(..., substeps=3)`).\n"
+            "     - Tableware, wine glasses, cups, bottles & brass sconces: `16–24` radial segments (`>= 80%` `Alt+J` quad recovery).\n"
+            "     - Architectural trim, window frames/sills, columns & curbs: micro-beveled edges (`vflib.quadflow.add_box(..., bevel=0.004..0.020)`) and smooth `20–24`-seg curved arches, curbs & Art Deco quatrefoil breeze blocks (`add_breeze_block(..., style=\"quatrefoil\")`).\n"
+            "     - 3D Botanicals: `20–24`-seg curved ringed palm trunks with `14–18` arching fronds × `16–22` pairs of `3`-seg curved V-folded leaflets; dense multi-branch shade trees & lush 3D hedges/bougainvillea (`40k–250k+` botanical tris expected).\n"
+            "     - Critic Rule: faceted low-segment cylinders (`<= 10` segs on hero props), sparse stick-like palms, or un-beveled boxy trim are `[MAJOR]` defects that block `10.0 / 10`."
+        )
+    else:
+        base_rule = (
+            "Real-world meter scale (`+Y` forward, `+Z` up, `ground_objects_safe`), multi-datum grounding (`Z_ROAD`, `Z_SW`, `Z_FLOOR_INT`), `2D` obstacle clearances, structured `FIXED` quad-flow furniture (`>= 80%` `Alt+J` quads), 3D curved botanicals (`deconflict_botanical_islands`), modular Outliner instancing + `vf_asset_set` (if any object exceeds `20k` tris because repeated/separable items like 2+ stools or chairs are joined together, split them into separate linked instances or sub-parts before reducing detail), and `--profile game --max-tris 300000`."
+            if is_arch
+            else "Real-world meter scale (`+Y` forward, `+Z` up, `ground_objects_safe`), `< 20,000` tris per `MeshPart` (`--profile roblox` — if any object exceeds `20k` tris because repeated/separable items like 2+ stools or props are joined together, split them into separate linked instances or sub-parts first instead of lowering detail), `>= 1.6 mm` wall thickness, positive signed volume normals, and `0` BVH shell breaches."
+        )
+        budget_rule = (
+            f"{base_rule}\n"
+            "   - *(High-Poly Uncapped Mode is OFF by default. Pass `--high-poly`, toggle `High-Poly Photorealistic Mode` in Studio UI, or explicitly request High-Poly Uncapped Mode in your prompt to remove the 300k/20k tri caps and enforce News Cafe ArchViz high-poly segment floors.)*"
+        )
 
-    qa_flags = f'--profile {qa_profile} --forward-axis +Y'
-    if qa_profile == "game":
+    qa_flags = f"--profile {qa_profile}"
+    if hp_on:
+        qa_flags += " --high-poly --max-tris 0"
+    elif qa_profile == "game":
         qa_flags += " --max-tris 300000"
+    qa_flags += " --forward-axis +Y"
     if ortho_grid and ortho_refs:
         qa_flags += " --ortho-grid"
     if review_cfg["enabled"]:
@@ -146,26 +169,22 @@ def build_agent_handoff_prompt(asset_dir: Path, *, rate_to_ten: bool | None = No
 
     if review_cfg["enabled"]:
         focus_line = f"\n   - Critic Focus Notes: {review_cfg['focus_notes']}" if review_cfg.get("focus_notes") else ""
-        strict_line = (
-            "\n   - **Strict 10/10 Rule:** Rate yourself honestly from `0` to `10` until the outcome genuinely becomes a `10 out of 10`. It should look brilliant. Do not rush, and do not fake or inflate the rating."
-            if (review_cfg.get("strict_ten") or review_cfg["target_score"] >= 10.0)
-            else ""
-        )
         qa_warn_req = " and `0` Warnings" if review_cfg["require_zero_qa_warnings"] else ""
         review_section = (
-            f"5. **Optional Iterative Critic & Honest Rating Loop (`ENABLED` — Target `{review_cfg['target_score']:.1f} / 10`, Max `{review_cfg['max_iterations']}` Iterations):**\n"
+            f"5. **Optional Iterative Critic & Honest Rating Loop (`ENABLED` — Strict Target `10.0 / 10`, Never Proceed Below `10/10`):**\n"
             f"   - After inspecting ALL rendered views (`renders/ref_comparison.png`, `renders/qa_contact_material.png`, `renders/qa_contact_diagnostic.png`, and individual `renders/refcam_*.png`) against every reference photo + `qa_report.json`:\n"
-            f"   - Write a brutally honest **Iteration N Review — Honest Rating: X.X / 10** (NO grade inflation — explicitly list strengths AND categorized defects such as primitive foliage blobs, buried windows, clipping umbrellas/props, blurry signage, floating parts, or UV overlaps).{focus_line}{strict_line}\n"
+            f"   - Write a brutally honest **Iteration N Review — Honest Rating: X.X / 10** (NO grade inflation — explicitly list strengths AND categorized defects such as primitive foliage blobs, faceted low-segment props, buried windows, clipping umbrellas/props, blurry signage, floating parts, or UV overlaps).{focus_line}\n"
+            f"   - **Strict Always-10/10 Rule:** Rate yourself honestly from `0` to `10` until the outcome genuinely becomes a `10 out of 10`. It should look brilliant. Do not rush, do not fake or inflate the rating, and **NEVER stop, approve, or proceed to Stage 5 baking below `10.0 / 10`** (even `9.0`, `9.5`, or `9.6` must keep iterating!).\n"
             f"   - Persist every iteration review so Velum Forge tracks progression & builds `reviews/iteration_progression.png`:\n"
             f"     `vforge review log \"{asset_dir}\" --score <X.X> --summary \"...\" --strength \"...\" --defect \"Category|major|Defect|Exact fix\"`\n"
-            f"   - Iterate (fixing all critical/major visual defects AND geometric QA issues) until **Honest Rating >= {review_cfg['target_score']:.1f} / 10** with **QA PASS (`0` Errors{qa_warn_req})**, or until `{review_cfg['max_iterations']}` iterations are completed.\n\n"
+            f"   - Keep iterating (fixing all defects and geometric QA issues) until **Honest Rating == 10.0 / 10**, `0` unresolved defects, and **QA PASS (`0` Errors{qa_warn_req})**.\n\n"
             f"6. **Bake Dedicated `{bake_res}x{bake_res}` Per-Set Cycles GPU PBR Maps, Variants & Instance-Aware `LOD0`–`LOD3`:**\n"
             f"   - Run: `vforge bake \"{asset_dir / 'bake_lod_variants.py'}\"` (`isolate_for_ao=True`, Dual-UV `GraphicUV`, clean Outliner with `0` `_src` suffixes) and inspect `renders/variants_lineup.png`, `renders/lod_comparison_sheet.png`, and `reviews/iteration_progression.png`."
         )
     else:
         review_section = (
             f"5. **Bake Dedicated `{bake_res}x{bake_res}` Per-Set Cycles GPU PBR Maps, Variants & Instance-Aware `LOD0`–`LOD3`:**\n"
-            f"   - *(Iterative Rating Review Loop is `OFF` for this asset — single-pass QA mode. Toggle it ON anytime with `vforge review config \"{asset_dir}\" --enable` or `--rate-to-10`.)*\n"
+            f"   - *(Iterative Rating Review Loop is `OFF` for this asset — single-pass QA mode. Toggle it ON anytime with `vforge review config \"{asset_dir}\" --enable` — when enabled, target is always `10.0 / 10`.)*\n"
             f"   - Run: `vforge bake \"{asset_dir / 'bake_lod_variants.py'}\"` (`isolate_for_ao=True`, Dual-UV `GraphicUV`, clean Outliner with `0` `_src` suffixes) and inspect `renders/variants_lineup.png` and `renders/lod_comparison_sheet.png`."
         )
 
@@ -204,10 +223,15 @@ def generate_parametric_scripts(
     ortho_blueprint_grid: bool = False,
     review_loop: dict[str, Any] | None = None,
     rate_to_ten: bool | None = None,
+    high_poly_uncapped: bool = False,
 ) -> dict[str, str]:
     """Write reference-calibrated multi-part `build_<slug>.py` + `bake_lod_variants.py` + `asset_spec.json`."""
     asset_dir.mkdir(parents=True, exist_ok=True)
-    resolved_profile = ("game" if kind in ("building", "arch") else "roblox") if profile == "auto" else profile
+    hp_on = bool(high_poly_uncapped)
+    if profile == "auto":
+        resolved_profile = "game" if (hp_on or kind in ("building", "arch")) else "roblox"
+    else:
+        resolved_profile = profile
     spec_path = write_asset_spec(
         asset_dir,
         slug=slug,
@@ -218,6 +242,7 @@ def generate_parametric_scripts(
         profile=resolved_profile,
         bake_res=bake_res,
         rate_to_ten=rate_to_ten,
+        high_poly_uncapped=hp_on,
         references=references,
         ortho_blueprint_grid=ortho_blueprint_grid,
         review_loop=review_loop,
@@ -640,7 +665,7 @@ def build_all(collection_name: str = "{pascal}", clear_scene: bool = True, mat_o
 
     quadflow.ground_objects_safe(meshes, target_z=Z_ROAD)
     refs.load_references(THIS_DIR, subject_objects=meshes)
-    gameready.validate(meshes, max_tris=300000, deduplicate_meshes=True)
+    gameready.validate(meshes, max_tris={2_000_000 if hp_on else 300000}, deduplicate_meshes=True)
     return root_col, meshes
 
 
@@ -739,7 +764,7 @@ def main() -> int:
     export.export_roblox(
         "{pascal}", os.path.join(THIS_DIR, "roblox"), specs,
         source_collection=col, prebaked_texture_sets=flagship_tex_sets,
-        prebaked_materials_by_set=flagship_mats_by_set, max_tris=300000,
+        prebaked_materials_by_set=flagship_mats_by_set, max_tris={2_000_000 if hp_on else 300000},
     )
 
     for l_idx in (1, 2, 3):

@@ -191,6 +191,8 @@ def run(objects=None, profile="game", eps=0.001, tol=0.002, no_modifiers=False, 
     verts, tris, tri_meta = [], [], []      # tri_meta: (obj_i, island_gid, normal)
     island_info = {}                         # gid -> dict(ob, verts, tris, bbox)
     mesh_topo_cache = {}                     # ob.data.as_pointer() -> mesh-local counts & uv stats
+    obj_aabb = []                            # per-object world AABB (lo, hi)
+    obj_proto_key = []                       # non-zero key when mesh+scale can skip duplicate intra-object BVH probes
     min_z = math.inf
     for oi, ob in enumerate(obs):
         gid_base = len(island_info)
@@ -201,14 +203,27 @@ def run(objects=None, profile="game", eps=0.001, tol=0.002, no_modifiers=False, 
         base_v = len(verts)
         verts.extend(v.co.copy() for v in bm.verts)
         if bm.verts:
-            min_z = min(min_z, min(v.co.z for v in bm.verts))
+            xs = [v.co.x for v in bm.verts]
+            ys = [v.co.y for v in bm.verts]
+            zs = [v.co.z for v in bm.verts]
+            min_z = min(min_z, min(zs))
+            obj_aabb.append((Vector((min(xs), min(ys), min(zs))), Vector((max(xs), max(ys), max(zs)))))
+        else:
+            obj_aabb.append((Vector((0.0, 0.0, 0.0)), Vector((0.0, 0.0, 0.0))))
 
         m["verts"], m["faces"] = len(bm.verts), len(bm.faces)
         m["tris"] = sum(len(f.verts) - 2 for f in bm.faces)
         m["islands"] = n_isl
 
         me_ptr = ob.data.as_pointer() if ob.data is not None else 0
-        cached = mesh_topo_cache.get(me_ptr) if (no_modifiers and me_ptr) else None
+        is_unmod = bool(no_modifiers or not ob.modifiers)
+        s = ob.scale
+        obj_proto_key.append(
+            (me_ptr, round(s.x, 4), round(s.y, 4), round(s.z, 4))
+            if (is_unmod and me_ptr and s.x > 0 and s.y > 0 and s.z > 0)
+            else None
+        )
+        cached = mesh_topo_cache.get(me_ptr) if (is_unmod and me_ptr) else None
         if cached is not None:
             m.update(cached)
         else:
@@ -349,7 +364,7 @@ def run(objects=None, profile="game", eps=0.001, tol=0.002, no_modifiers=False, 
             )
         per[ob.name] = m
 
-    if len(tris) > max_tris:
+    if max_tris and max_tris > 0 and len(tris) > max_tris:
         warnings.append(f"{len(tris)} tris > max_tris {max_tris}: z-fighting/floating checks skipped")
         return _result(errors, warnings, per, min_z, tol, [], [], [], (), skipped_zf=True)
 
@@ -358,9 +373,36 @@ def run(objects=None, profile="game", eps=0.001, tol=0.002, no_modifiers=False, 
     for ti, (_, g, _) in enumerate(tri_meta):
         island_info[g]["tris"].append(ti)
 
+    # Precompute instance prototype dedup & AABB neighbor flags so uncapped high-poly scenes stay fast
+    n_obs = len(obs)
+    has_neighbor = [False] * n_obs
+    for i in range(n_obs):
+        lo_i, hi_i = obj_aabb[i]
+        for j in range(i + 1, n_obs):
+            lo_j, hi_j = obj_aabb[j]
+            if (
+                lo_i.x - eps <= hi_j.x and hi_i.x + eps >= lo_j.x
+                and lo_i.y - eps <= hi_j.y and hi_i.y + eps >= lo_j.y
+                and lo_i.z - eps <= hi_j.z and hi_i.z + eps >= lo_j.z
+            ):
+                has_neighbor[i] = True
+                has_neighbor[j] = True
+    seen_proto_self = set()
+    dup_instance_obj = [False] * n_obs
+    for oi, pkey in enumerate(obj_proto_key):
+        if pkey is not None:
+            if pkey in seen_proto_self:
+                dup_instance_obj[oi] = True
+            else:
+                seen_proto_self.add(pkey)
+
     # ---- z-fighting: parallel faces within eps whose areas overlap --------------------
     zf_pairs, contact_pairs = set(), set()
     for ti, t in enumerate(tris):
+        oi = tri_meta[ti][0]
+        is_dup = dup_instance_obj[oi]
+        if is_dup and not has_neighbor[oi]:
+            continue
         a, b, c = (verts[i] for i in t)
         n = tri_meta[ti][2]
         if n.length < 0.5:
@@ -369,6 +411,8 @@ def run(objects=None, profile="game", eps=0.001, tol=0.002, no_modifiers=False, 
         for p in (cen, cen.lerp(a, .6), cen.lerp(b, .6), cen.lerp(c, .6)):
             for _, _, tj, _ in bvh.find_nearest_range(p, eps):
                 if tj is None or tj == ti:
+                    continue
+                if is_dup and tri_meta[tj][0] == oi:
                     continue
                 if tri_sets[ti] & tri_sets[tj]:
                     continue

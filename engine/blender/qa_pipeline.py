@@ -531,6 +531,23 @@ def run_pipeline(args: argparse.Namespace) -> dict:
 
     os.makedirs(args.out_dir, exist_ok=True)
     spec = _load_asset_spec(args)
+    is_high_poly = bool(getattr(args, "high_poly", False) or spec.get("high_poly_uncapped", False))
+    if args.profile == "auto":
+        resolved_profile = str(spec.get("qa_profile") or ("game" if is_high_poly else "roblox"))
+        if is_high_poly and resolved_profile == "roblox":
+            resolved_profile = "game"
+    else:
+        resolved_profile = args.profile
+
+    if args.max_tris is not None and args.max_tris >= 0:
+        resolved_max_tris = int(args.max_tris)
+    elif is_high_poly:
+        resolved_max_tris = 0
+    elif spec.get("qa_max_tris") is not None:
+        resolved_max_tris = int(spec["qa_max_tris"])
+    else:
+        resolved_max_tris = 300000
+
     asset_name = args.asset_name or spec.get("title") or (
         os.path.splitext(os.path.basename(args.input))[0]
         if args.input
@@ -538,11 +555,13 @@ def run_pipeline(args: argparse.Namespace) -> dict:
         or (os.path.splitext(os.path.basename(bpy.data.filepath))[0] if bpy.data.filepath else "SceneAsset")
     )
 
-    qa = qa_check.run(objects=[o.name for o in targets], profile=args.profile, max_tris=args.max_tris)
-    metrics = _compute_suncity_metrics(targets, args.profile, qa)
+    qa = qa_check.run(objects=[o.name for o in targets], profile=resolved_profile, max_tris=resolved_max_tris)
+    metrics = _compute_suncity_metrics(targets, resolved_profile, qa)
     qa.update(metrics)
     qa["asset_name"] = asset_name
-    qa["profile"] = args.profile
+    qa["profile"] = resolved_profile
+    qa["max_tris"] = resolved_max_tris
+    qa["high_poly_uncapped"] = is_high_poly
 
     res_x = 512 if args.fast else args.res_x
     res_y = 384 if args.fast else args.res_y
@@ -827,8 +846,9 @@ def main() -> int:
     parser.add_argument("--out-dir", required=True, help="Output directory")
     parser.add_argument("--collection", default="", help="Target collection name")
     parser.add_argument("--objects", nargs="*", default=None, help="Target object names")
-    parser.add_argument("--profile", default="roblox", choices=["roblox", "game", "render", "print"])
-    parser.add_argument("--max-tris", type=int, default=300000)
+    parser.add_argument("--profile", default="roblox", choices=["auto", "roblox", "game", "render", "print"])
+    parser.add_argument("--max-tris", type=int, default=-1, help="BVH check tri threshold (-1 = auto from spec/300000, 0 = unlimited)")
+    parser.add_argument("--high-poly", action="store_true", help="Opt-in High-Poly Uncapped Mode (no 300k BVH cap / no 20k part cap)")
     parser.add_argument("--renderer", default="auto", choices=["auto", "cycles", "workbench"])
     parser.add_argument("--fast", action="store_true", help="Fast Workbench material render at 512x384")
     parser.add_argument("--res-x", type=int, default=640)

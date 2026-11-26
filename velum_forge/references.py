@@ -284,12 +284,18 @@ def write_asset_spec(
     bake_res: int = 2048,
     variants_count: int = 4,
     rate_to_ten: bool | None = None,
+    high_poly_uncapped: bool = False,
     references: list[dict[str, Any]] | None = None,
     ortho_blueprint_grid: bool = False,
     review_loop: dict[str, Any] | None = None,
 ) -> Path:
     """Write `<asset_dir>/asset_spec.json` — the single source of truth read by Velum Forge & AI agents."""
-    resolved_profile = ("game" if kind in ("building", "arch") else "roblox") if profile == "auto" else profile
+    hp_on = bool(high_poly_uncapped)
+    if profile == "auto":
+        resolved_profile = "game" if (hp_on or kind in ("building", "arch")) else "roblox"
+    else:
+        resolved_profile = profile
+    qa_max_tris = 0 if hp_on else 300000
     refs = [dict(r) for r in (references or [])]
     # Spread default azimuths automatically when multiple perspective photos share the same default angle
     spread_az = [32.0, 0.0, -32.0, 145.0, -145.0, 62.0, -62.0, 180.0]
@@ -312,13 +318,14 @@ def write_asset_spec(
     raw_review = dict(review_loop) if isinstance(review_loop, dict) else {}
     if rate_to_ten is True and raw_review.get("enabled") is not False:
         raw_review.setdefault("enabled", True)
-        raw_review.setdefault("target_score", 10.0)
-        raw_review.setdefault("strict_ten", True)
     review_cfg = normalize_review_config(raw_review or None)
 
-    qa_cmd = f'vforge qa "{asset_dir / f"build_{slug}.py"}" --profile {resolved_profile} --forward-axis +Y'
-    if resolved_profile == "game":
+    qa_cmd = f'vforge qa "{asset_dir / f"build_{slug}.py"}" --profile {resolved_profile}'
+    if hp_on:
+        qa_cmd += " --high-poly --max-tris 0"
+    elif resolved_profile == "game":
         qa_cmd += " --max-tris 300000"
+    qa_cmd += " --forward-axis +Y"
     if ortho_blueprint_grid and has_ortho:
         qa_cmd += " --ortho-grid"
     if review_cfg["enabled"]:
@@ -332,10 +339,12 @@ def write_asset_spec(
         "prompt": prompt,
         "target_length_m": float(length_m),
         "qa_profile": resolved_profile,
+        "high_poly_uncapped": hp_on,
+        "qa_max_tris": qa_max_tris,
         "bake_res": int(bake_res),
         "variants_count": int(variants_count),
         "ortho_blueprint_grid": bool(ortho_blueprint_grid and has_ortho),
-        "rate_to_ten": bool(review_cfg.get("strict_ten") or (rate_to_ten is True)),
+        "rate_to_ten": bool(review_cfg["enabled"] or (rate_to_ten is True)),
         "review_loop": review_cfg,
         "extracted_palette": merged_palette[:6] or ["#0E7490", "#EAB308", "#F1F5F9", "#1E293B"],
         "references": refs,

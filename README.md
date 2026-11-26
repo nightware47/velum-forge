@@ -73,7 +73,7 @@ vforge studio
 3. **Step 2 (Perspective-First References):** **Drag & drop** multiple photos/Street Views/blueprints (or press **`Ctrl+V`**).
    - **Real perspective photos** (`Hero 3/4`, `Street View`, `Close-Up`, `Aerial`) automatically spawn **matched Blender Perspective Cameras (`VF_RefCam_*`)** with real focal lengths (`24mm`–`85mm`) and camera background overlays — producing a **multi-angle side-by-side `ref_comparison.png`** without forcing ortho grids onto perspective shots!
    - **Orthographic blueprints** (`Ortho Side / Front / Back / Top`) place `1:1 m` orthographic planes and unlock the **opt-in Metric Blueprint Grid** strictly on ortho views.
-4. **Optional Core Feature — Iterative Critic & Honest Rating Loop:** Toggle **`Enable Iterative Visual Critic & Honest Rating Loop`** ON whenever you want multi-pass AAA refinement (configurable Target Rating e.g. `9.0 / 10`, Max Iterations, QA Gate caps, archived per-iteration snapshots, visual `iteration_progression.png`, and 1-click **Next-Iteration Fix Prompts** in Showroom!). Leave OFF for instant single-pass builds.
+4. **Optional Core Feature — Iterative Critic (Always Strict 10/10) & High-Poly Uncapped Toggle:** Toggle **`Enable Iterative Visual Critic & Honest Rating Loop`** ON whenever you want multi-pass refinement (always iterates until genuinely **`10.0 / 10`** with `0` QA errors/warnings and `0` unresolved defects — never stops below `10/10`). Optionally toggle **`High-Poly Photorealistic Mode`** ON to inject uncapped `--high-poly --max-tris 0` geometry floors without forcing it globally. Leave both OFF for instant single-pass builds.
 5. **Step 3 — Pick how to build:**
    - **Generate 3D Asset Now (Instant + Ref QA):** Builds a reference-calibrated multi-part `.blend` + `.glb`, renders the 10-view QA sheets + **Multi-Angle Reference vs. Model (`ref_comparison.png`)**, and generates 4 variants + `LOD0`–`LOD3`!
    - **Generate Bespoke via Local AI CLI (`Claude` / `Codex` / `Gemini`):** Drives your installed multimodal AI CLI directly against `references/*` and `asset_spec.json`.
@@ -81,19 +81,18 @@ vforge studio
 
 ### From the Command Line (`vforge`)
 ```powershell
-# Generate a new 3D asset from perspective photos + opt-in Iterative Honest Rating Loop:
-vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv_front.jpg --ref gsv_corner.jpg --iterate --target-score 9.0 --max-iterations 3
-# Or enforce Strict 10/10 Mode (do not rush or fake the rating):
-vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv_front.jpg --rate-to-10 --engine handoff
+# Generate a new 3D asset with opt-in Iterative Strict 10/10 Review + opt-in High-Poly Uncapped Mode:
+vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv_front.jpg --ref gsv_corner.jpg --iterate
+vforge generate ocean_dr_800 --kind building --length 18.0 --ref gsv_front.jpg --high-poly --rate-to-10 --engine handoff
 
-# Toggle or configure Optional Iterative Rating Reviews on any existing asset:
-vforge review config examples\mahi_mahi --enable --target 9.0 --max-iter 3
+# Toggle Optional Iterative Review (always 10.0/10 target) or High-Poly Uncapped Mode on any existing asset:
+vforge review config examples\mahi_mahi --enable --high-poly
 vforge review log examples\mahi_mahi --score 7.8 --summary "Strong glazing & silhouette, minor foliage fixes left" --strength "100% outward blue normals" --defect "Botanicals|major|Straight branch cylinders|Replace with curved branching canopy"
 vforge review status examples\mahi_mahi      # Score trajectory + reviews/iteration_progression.png
 vforge review prompt examples\mahi_mahi      # Focused Next-Iteration defect-fix prompt
 
-# Architectural / high-poly environment QA (`--profile game` lifts the 20k/part limit):
-vforge qa examples\news_cafe_south_beach\build_news_cafe_south_beach.py --profile game --forward-axis +Y --max-tris 300000
+# Architectural QA (default 300k BVH guard, or --high-poly --max-tris 0 for opt-in uncapped mode):
+vforge qa examples\news_cafe_south_beach\build_news_cafe_south_beach.py --profile game --high-poly --max-tris 0 --forward-axis +Y
 
 # Attach perspective photos (or ortho blueprints) & run QA with multi-ref side-by-side comparison:
 vforge add-ref examples\mahi_mahi C:\photos\dorado_ref.jpg --view hero --lens 50
